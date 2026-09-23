@@ -35,3 +35,4 @@ class PlusEvent(Base):
     need_static: Mapped[bool] = mapped_column(Boolean, default=False)
     participants_json: Mapped[str] = mapped_column(Text, default="{}")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    event_kind: Mapped[str] = mapped_column(Text, default="general")

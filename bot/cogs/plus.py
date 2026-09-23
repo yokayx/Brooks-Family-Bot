@@ -9,7 +9,14 @@ from discord import app_commands
 from discord.ext import commands
 from sqlalchemy import select
 
-from bot.config import RANK_ROLE_IDS
+from bot.config import (
+    HEAD_VZP_ROLE_ID,
+    PLUS_KIND_GENERAL,
+    PLUS_KIND_LABELS,
+    PLUS_KIND_PINGS,
+    PLUS_KIND_VZP,
+    RANK_ROLE_IDS,
+)
 from bot.db import session_scope
 from bot.models import PlusEvent
 from bot.plus.names import member_game_name
@@ -24,6 +31,14 @@ log = logging.getLogger("brooks.plus")
 
 def _is_family(member: discord.Member) -> bool:
     return any(role.id in RANK_ROLE_IDS for role in member.roles) or is_leader(member)
+
+
+def _can_create_plus(member: discord.Member) -> bool:
+    return any(role.id == HEAD_VZP_ROLE_ID for role in member.roles) or is_leader(member)
+
+
+def _kind_label(kind: str | None) -> str:
+    return PLUS_KIND_LABELS.get(kind or PLUS_KIND_GENERAL, "Общий")
 
 
 def _load_participants(raw: str | None) -> dict:
@@ -104,14 +119,22 @@ class PlusCog(commands.Cog, name="Plus"):
     def build_embed(self, guild: discord.Guild, event: PlusEvent) -> discord.Embed:
         when = event.event_time
         ts = int(when.timestamp()) if when is not None else 0
+        kind = getattr(event, "event_kind", None) or PLUS_KIND_GENERAL
+        label = _kind_label(kind)
+        color = (
+            discord.Color.from_rgb(192, 57, 43)
+            if kind == PLUS_KIND_VZP
+            else discord.Color.from_rgb(88, 101, 242)
+        )
         embed = discord.Embed(
-            title="Сбор на мероприятие",
+            title=f"Сбор · {label}",
             description=(
+                f"**Тип:** {label}\n"
                 f"**Причина:** {event.reason}\n"
                 f"**Время:** <t:{ts}:t> (<t:{ts}:R>)\n"
                 f"**Нужен статик:** {'Да' if event.need_static else 'Нет'}"
             ),
-            color=discord.Color.from_rgb(88, 101, 242),
+            color=color,
         )
         participants = _load_participants(event.participants_json)
         if not participants:
@@ -206,9 +229,22 @@ class PlusCog(commands.Cog, name="Plus"):
         await interaction.response.send_message("Вы убраны из списка участников.", ephemeral=True)
 
     @app_commands.command(name="плюсы", description="Создать сбор на мероприятие")
+    @app_commands.describe(
+        тип="Общий или VZP — от этого зависит тег роли",
+        причина="Зачем сбор",
+        время="ЧЧ:ММ по Москве",
+        нужен_статик="Спрашивать статик при записи",
+    )
+    @app_commands.choices(
+        тип=[
+            app_commands.Choice(name="Общий", value=PLUS_KIND_GENERAL),
+            app_commands.Choice(name="VZP", value=PLUS_KIND_VZP),
+        ]
+    )
     async def plus_command(
         self,
         interaction: discord.Interaction,
+        тип: app_commands.Choice[str],
         причина: str,
         время: str,
         нужен_статик: bool,
@@ -217,8 +253,8 @@ class PlusCog(commands.Cog, name="Plus"):
         if interaction.guild is None or member is None:
             await _say(interaction, "Только на сервере.")
             return
-        if not is_leader(member):
-            await _say(interaction, "У вас нет прав на создание сборов.")
+        if not _can_create_plus(member):
+            await _say(interaction, "Сборы создаёт Head VZP или руководство.")
             return
         try:
             event_time = parse_event_time(время)
@@ -238,6 +274,7 @@ class PlusCog(commands.Cog, name="Plus"):
                 need_static=нужен_статик,
                 participants_json="{}",
                 is_active=True,
+                event_kind=тип.value,
             )
             session.add(event)
             await session.flush()
@@ -248,7 +285,15 @@ class PlusCog(commands.Cog, name="Plus"):
             await interaction.response.send_message("Не удалось создать сбор.", ephemeral=True)
             return
         embed = self.build_embed(interaction.guild, stored)
-        await interaction.response.send_message(embed=embed, view=PlusEventView(self))
+        ping_role = PLUS_KIND_PINGS.get(тип.value)
+        ping = f"<@&{ping_role}>" if ping_role else None
+        mentions = discord.AllowedMentions(everyone=False, users=False, roles=True)
+        await interaction.response.send_message(
+            content=ping,
+            embed=embed,
+            view=PlusEventView(self),
+            allowed_mentions=mentions,
+        )
         message = await interaction.original_response()
 
         async with session_scope() as session:
