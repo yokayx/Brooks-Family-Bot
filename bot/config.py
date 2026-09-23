@@ -1,0 +1,49 @@
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Каналы
+ROSTER_CHANNEL_ID = 1552347393993867274
+OWNER_CHANNEL_ID = 1453123004484554990
+
+# Ранги состава сверху вниз: (role_id, заголовок секции)
+RANK_ROLES: tuple[tuple[int, str], ...] = (
+    (1453123003645952260, "Owner"),
+    (1508501848347377835, "AFK Owner"),
+    (1453123003645952259, "Dep. Owner"),
+    (1551727304382611476, "Head VZP"),
+    (1453123003645952254, "Recruiter (ПИШИТЕ ИМ ПО ВОПРОСАМ ВСТУПЛЕНИЯ)"),
+    (1550834570134298624, "Пенсия"),
+    (1453123003645952255, "High"),
+    (1453123003566264611, "Main"),
+    (1550827936641454141, "Test"),
+)
+
+RANK_ROLE_IDS: frozenset[int] = frozenset(role_id for role_id, _ in RANK_ROLES)
+
+# Руководство: /refresh и тег при ошибке.
+# Последний id — вне состава.
+LEADERSHIP_ROLE_IDS: tuple[int, ...] = (
+    1453123003645952260,  # Owner
+    1508501848347377835,  # AFK Owner
+    1453123003645952259,  # Dep. Owner
+    1550837284927180882,  # руководство вне состава
+)
+
+FAMILY_NAME = "Brooks"
+FALLBACK_NICK = "НИКНЕЙМ ПО ФОРМЕ ДАЙ СУКА"
+PLACEHOLDER = "."
+ERROR_CHANNEL_TEXT = "Возникла проблема при отправке состава"
+MAX_SEND_ATTEMPTS = 3
+DISCORD_MESSAGE_LIMIT = 2000
+SEND_GAP_SECONDS = 0.4
+MOSCOW_TZ = "Europe/Moscow"
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    discord_token: str
+    database_url: str = "sqlite+aiosqlite:///data/brooks.db"
+
+
+def load_settings() -> Settings:
+    return Settings()
