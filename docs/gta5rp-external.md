@@ -91,21 +91,41 @@ Richman = `serverId: 8`.
 - Живые 0:0 появляются в момент забива, счёт тикает во время боя — Discord так не обновляют.
 - Оверлей специально садится поверх GTA в режиме «окно без рамки».
 
-Итог: первоисточник = **RageMP-клиент GTA5RP у игрока**. Публичной трубы, которую можно дергать вместо лаунчера, нет. Для бота семьи остаётся либо их сайт (хрупко, чужой продукт), либо руками из Family War Discord.
+Итог: первоисточник = **RageMP-клиент GTA5RP у игрока**. Официальной трубы GTA5RP нет.
 
-[vzp-launcher.pro](https://vzp-launcher.pro/) — **не GTA5RP**. Клиент/оверлей сообщества: Elo, матчи, карта, FamQ.
+## vzp-gta5rp.com — карточка Brooks
 
-Публично без логина:
+[Семья 176611](https://vzp-gta5rp.com/stats/families/176611) — это Brooks, Richman.
 
-- список войн: https://vzp-launcher.pro/vzp  
-  атакующий, счёт, защитник, статус, сервер, территория, карта, время МСК;
-- профиль семьи: https://vzp-launcher.pro/family/Brooks  
-- каталог семей, рейтинг игроков.
+- В проекте #1028, на сервере #23
+- 16 / 8, 66.7%, винстрик 6, 24 капта
+- Аватар `/avatars/org/8-9583.webp` → сервер **8** (Richman в masterlist) и игровой id организации **9583**
+- История совпадает с лаунчером (Hellsize, Larry's Pork, 23.09 19:25)
 
-Документированного API нет (в отличие от masterlist). Бот может только:
+Сайт подписан **Sakuta x SE;WER**. Это мониторинг, не GTA5RP. JSON API на этом домене не открыт (SPA, `/api/...` → 404).
 
-- хрупко парсить HTML; или
-- разобрать XHR фронта (неофициально, может отвалиться).
+Тот же поток данных, что у лаунчера: id игрока `261` есть и там, и на `vzp-launcher.pro/player/261`. Карты в URL — игровые коды (`NEW_B_ELBURRO`, `NEW_S_WINDFARM`).
+
+## JSON, который реально открыт
+
+Не GTA5RP, а бэкенд лаунчера (NestJS + Postgres):
+
+`GET https://vzp-launcher.pro/api/wars?limit=1`
+
+```json
+{
+  "data": [{ "attacker_name": "...", "defender_name": "...", "territory": "...",
+             "map_name": "NEW_S_WINDFARM", "server_name": "RICHMAN",
+             "status": "active", "started_at": "..." }],
+  "total": 80546, "page": 1, "limit": 1
+}
+```
+
+`GET https://vzp-launcher.pro/api/families` — карточки FamQ (uuid). Поиск по имени `Brooks` в query не фильтрует.
+
+Для бота: войны — `/api/wars` (фильтр по `server_name`/`attacker_name` на своей стороне). Карточка 176611 — парсить HTML мониторинга или просить у авторов API; публичного JSON семьи там нет.
+
+HTML без логина: https://vzp-launcher.pro/vzp и https://vzp-launcher.pro/family/Brooks
 
 Снимок Brooks (сезон осень 2026):
 
@@ -124,7 +144,7 @@ Richman = `serverId: 8`.
 | Онлайн Richman, пик, ап/даун | `gta5masterlist.ru/api/servers/gta5rp/8` | высокая |
 | Онлайн «как в лаунчере Rage» | `cdn.rage.mp/master` | высокая |
 | Официальные логи ВЗП / точки | нет | — |
-| Счёт боёв, Elo, история Brooks | vzp-launcher.pro | средняя, чужой продукт |
+| Счёт боёв Brooks | `vzp-launcher.pro/api/wars` + карточка [176611](https://vzp-gta5rp.com/stats/families/176611) | средняя, не GTA5RP |
 | Кто из состава онлайн в игре | нет | — |
 
 Рекомендация: ког онлайна Richman с masterlist (поллинг ≥ 5 мин). ВЗП — только если семья ок с неофициальным лаунчером, и с пометкой «не GTA5RP».
