@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import logging
+import pkgutil
 
 import discord
 from discord.ext import commands
 from dotenv import load_dotenv
 
-from bot.cogs.roster import RosterCog
+from bot import cogs as cogs_package
 from bot.config import load_settings
 from bot.db import init_db
 
@@ -33,7 +34,17 @@ class BrooksBot(commands.Bot):
 
     async def setup_hook(self) -> None:
         await init_db(self._database_url)
-        await self.add_cog(RosterCog(self))
+        await self.load_cogs()
+
+    async def load_cogs(self) -> None:
+        loaded: list[str] = []
+        for module in pkgutil.iter_modules(cogs_package.__path__):
+            if module.name.startswith("_"):
+                continue
+            ext = f"{cogs_package.__name__}.{module.name}"
+            await self.load_extension(ext)
+            loaded.append(ext)
+        log.info("cogs loaded: %s", ", ".join(loaded) or "(none)")
 
     def start_bot(self) -> None:
         self.run(self._token)

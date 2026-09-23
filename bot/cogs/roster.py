@@ -11,14 +11,16 @@ from discord.ext import commands, tasks
 from bot.config import MOSCOW_TZ, OWNER_CHANNEL_ID, RANK_ROLE_IDS, ROSTER_CHANNEL_ID
 from bot.roster.manager import RosterManager, is_leader, member_affects_roster
 
-log = logging.getLogger("brooks.roster.cog")
+log = logging.getLogger("brooks.roster")
 
 
-class RosterCog(commands.Cog):
+class RosterCog(commands.Cog, name="Roster"):
+    """Состав семьи: канал, события ролей/ника, /refresh, 00:00 МСК."""
+
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
         self.manager = RosterManager(bot)
-        self._ready = False
+        self._started = False
 
     async def cog_load(self) -> None:
         await self.manager.load()
@@ -30,16 +32,9 @@ class RosterCog(commands.Cog):
 
     @commands.Cog.listener()
     async def on_ready(self) -> None:
-        if self._ready:
+        if self._started:
             return
-        self._ready = True
-        log.info("roster cog ready as %s", self.bot.user)
-        guild_id = await self._resolve_guild_id()
-        if guild_id is not None:
-            guild_obj = discord.Object(id=guild_id)
-            self.bot.tree.copy_global_to(guild=guild_obj)
-            synced = await self.bot.tree.sync(guild=guild_obj)
-            log.info("synced %s guild commands", len(synced))
+        self._started = True
         await self.manager.notify_changed("startup")
 
     @tasks.loop(time=time(hour=0, minute=0, tzinfo=ZoneInfo(MOSCOW_TZ)))
@@ -122,15 +117,6 @@ class RosterCog(commands.Cog):
             return channel.guild.id
         return None
 
-    async def _resolve_guild_id(self) -> int | None:
-        guild_id = self._guild_id()
-        if guild_id is not None:
-            return guild_id
-        try:
-            channel = await self.bot.fetch_channel(ROSTER_CHANNEL_ID)
-        except discord.HTTPException:
-            log.exception("cannot resolve guild from roster channel")
-            return None
-        if isinstance(channel, discord.abc.GuildChannel):
-            return channel.guild.id
-        return None
+
+async def setup(bot: commands.Bot) -> None:
+    await bot.add_cog(RosterCog(bot))
