@@ -5,7 +5,7 @@ import logging
 import discord
 from discord.ext import commands
 
-from bot.config import OWNER_CHANNEL_ID, ROSTER_CHANNEL_ID
+from bot.config import OWNER_CHANNEL_ID, ROSTER_CHANNEL_ID, VZP_CHANNEL_ID
 
 log = logging.getLogger("brooks.core")
 
@@ -33,7 +33,11 @@ class CoreCog(commands.Cog, name="Core"):
         log.info("synced %s guild commands for %s", len(synced), guild_id)
 
     async def _resolve_guild_id(self) -> int | None:
-        channel = self.bot.get_channel(ROSTER_CHANNEL_ID) or self.bot.get_channel(OWNER_CHANNEL_ID)
+        channel = (
+            self.bot.get_channel(ROSTER_CHANNEL_ID)
+            or self.bot.get_channel(VZP_CHANNEL_ID)
+            or self.bot.get_channel(OWNER_CHANNEL_ID)
+        )
         if isinstance(channel, discord.abc.GuildChannel):
             return channel.guild.id
         try:

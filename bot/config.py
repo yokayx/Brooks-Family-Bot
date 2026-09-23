@@ -3,6 +3,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 # Каналы
 ROSTER_CHANNEL_ID = 1552347393993867274
 OWNER_CHANNEL_ID = 1453123004484554990
+VZP_CHANNEL_ID = 1552367826906521620
 
 # Ранги состава сверху вниз: (role_id, заголовок секции)
 RANK_ROLES: tuple[tuple[int, str], ...] = (
@@ -36,6 +37,13 @@ MAX_SEND_ATTEMPTS = 3
 DISCORD_MESSAGE_LIMIT = 2000
 SEND_GAP_SECONDS = 0.4
 MOSCOW_TZ = "Europe/Moscow"
+
+VZP_API_BASE = "https://vzp-launcher.pro/api"
+VZP_FAMILY_NAME = "Brooks"
+VZP_SERVER_NAME = "RICHMAN"
+VZP_POLL_SECONDS = 60
+VZP_FETCH_LIMIT = 100
+VZP_SOURCE_NOTE = "vzp-launcher.pro · не официальный API GTA5RP"
 
 
 class Settings(BaseSettings):

@@ -94,4 +94,5 @@
 
 - `bot/cogs/core.py` — login, sync слэш-команд.
 - `bot/cogs/roster.py` — события состава, `/refresh`, полуночная переотправка.
-- Домен (сборка текста, отправка, SQLite) — `bot/roster/`, ког его только дёргает.
+- `bot/cogs/vzp.py` — итоги каптов Brooks/Richman в канал ВЗП.
+- Домен (сборка текста, отправка, SQLite) — `bot/roster/` и `bot/vzp/`.

@@ -12,3 +12,10 @@ class RosterState(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     fail_state: Mapped[bool] = mapped_column(Boolean, default=False)
     message_ids: Mapped[str] = mapped_column(Text, default="[]")
+
+
+class PostedVzpWar(Base):
+    __tablename__ = "posted_vzp_wars"
+
+    war_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    message_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
