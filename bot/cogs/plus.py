@@ -233,7 +233,7 @@ class PlusCog(commands.Cog, name="Plus"):
         тип="Общий или VZP — от этого зависит тег роли",
         причина="Зачем сбор",
         время="ЧЧ:ММ по Москве",
-        нужен_статик="Спрашивать статик при записи",
+        нужен_статик="Спрашивать статик при записи (необязательно)",
     )
     @app_commands.choices(
         тип=[
@@ -247,7 +247,7 @@ class PlusCog(commands.Cog, name="Plus"):
         тип: app_commands.Choice[str],
         причина: str,
         время: str,
-        нужен_статик: bool,
+        нужен_статик: bool = False,
     ) -> None:
         member = interaction.user if isinstance(interaction.user, discord.Member) else None
         if interaction.guild is None or member is None:
