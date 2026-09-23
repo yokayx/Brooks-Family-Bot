@@ -1,0 +1,110 @@
+# Что можно взять снаружи по GTA5RP
+
+Официального API у проекта **нет**. Тех.админы на форуме это прямо закрыли:
+
+- [API для разработчиков](https://forum.gta5rp.com/threads/api-dlya-razrabotchikov.2492604/) — Ward: «Нет.»
+- [Api GTA V RP](https://forum.gta5rp.com/threads/api-gta-v-rp.3151143/) — Shane Diesel: «У нас нет такого функционала»
+
+Личный кабинет `gta5rp.com`, форум, вики, донат — только через логин. Публичных JSON по персонажам, семьям, точкам и логам ВЗП у проекта нет.
+
+## Онлайн Richman — да, стабильно
+
+Игра крутится на RageMP, список серверов публичный.
+
+### 1. RageMP masterlist (ближе к «железу»)
+
+`GET https://cdn.rage.mp/master`
+
+Ключ: `richman.gta5rp.com:22005`
+
+Поля: `name`, `players`, `peak`, `maxplayers`, `gamemode`, `url`, `lang`.  
+Нет ключа → сервер не в мастере (рестарт / техработы).  
+Снимок: **627** игроков, peak **633**, max **5000**.
+
+Минус: нет графика, нет `todayPeak` за календарный день, документ не версионирован.
+
+### 2. gta5masterlist.ru (удобнее для бота)
+
+Документация: https://gta5masterlist.com/api-docs  
+База: `https://gta5masterlist.ru/api`  
+Лимит: не чаще раза в 5 минут, non-commercial.
+
+| Метод | Зачем |
+|--------|--------|
+| `GET /api/stats` | суммарный онлайн всего GTA5RP |
+| `GET /api/servers` | все сервера, Richman в массиве `gta5rp` |
+| `GET /api/servers/gta5rp/8` | Richman + график |
+| `GET /api/chart-data?range=24h` | история проекта |
+
+Richman = `serverId: 8`.
+
+Снимок API:
+
+```json
+{
+  "serverId": 8,
+  "name": "Richman",
+  "region": "ru",
+  "currentOnline": 629,
+  "maxPlayers": 2000,
+  "status": true,
+  "todayPeak": 629,
+  "allTimePeak": 2105
+}
+```
+
+`maxPlayers` у мониторингов расходится (2000 vs 5000 у RageMP) — для эмбеда брать `currentOnline` + `status`, слоты — с оговоркой.
+
+Для бота семьи лучше **masterlist `/api/servers/gta5rp/8`**: онлайн, пик дня, график, статус.
+
+## Результаты VЗП — официально нельзя
+
+ВЗП = война семей / предприятия / точки влияния. Правила: [форум](https://forum.gta5rp.com/threads/pravila-voiny-semei-tochki-vlijanija.3359369/).
+
+У проекта это живёт **в игре** (`M` → Война семей) и в **Family War Discord** сервера. Наружу не отдаётся:
+
+- кто держит точку;
+- лог забива / счёт боя;
+- состав вышедших;
+- репутация семьи;
+- кто из семьи онлайн в мире.
+
+Парсить кабинет/форум с аккаунта — ToS-серая зона и ломается на любом антиботе.
+
+## ВЗП снаружи — только чужой сервис
+
+[vzp-launcher.pro](https://vzp-launcher.pro/) — **не GTA5RP**. Клиент/оверлей сообщества: Elo, матчи, карта, FamQ.
+
+Публично без логина:
+
+- список войн: https://vzp-launcher.pro/vzp  
+  атакующий, счёт, защитник, статус, сервер, территория, карта, время МСК;
+- профиль семьи: https://vzp-launcher.pro/family/Brooks  
+- каталог семей, рейтинг игроков.
+
+Документированного API нет (в отличие от masterlist). Бот может только:
+
+- хрупко парсить HTML; или
+- разобрать XHR фронта (неофициально, может отвалиться).
+
+Снимок Brooks (сезон осень 2026):
+
+- #101 FamQ, рейтинг **1065**
+- 15 / 8, винрейт **65.2%**, 23 матча
+- серия побед 5
+- топ: Tempo_Hellsize, Valentin_Brooksov, Marin_Legendarov, Takashi_Brooks, Demery_Brooks
+- в эфире Richman: Brooks vs Неllsize, Larry's Pork / Ветряки мал.
+
+Это **не** source of truth проекта: не все бои попадают, ник может не совпасть с игрой, Hellsize на Richman в каталоге дублируется.
+
+## Итого для бота Brooks
+
+| Нужно | Источник | Надёжность |
+|--------|----------|------------|
+| Онлайн Richman, пик, ап/даун | `gta5masterlist.ru/api/servers/gta5rp/8` | высокая |
+| Онлайн «как в лаунчере Rage» | `cdn.rage.mp/master` | высокая |
+| Официальные логи ВЗП / точки | нет | — |
+| Счёт боёв, Elo, история Brooks | vzp-launcher.pro | средняя, чужой продукт |
+| Кто из состава онлайн в игре | нет | — |
+
+Рекомендация: ког онлайна Richman с masterlist (поллинг ≥ 5 мин). ВЗП — только если семья ок с неофициальным лаунчером, и с пометкой «не GTA5RP».
