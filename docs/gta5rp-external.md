@@ -147,4 +147,4 @@ HTML без логина: https://vzp-launcher.pro/vzp и https://vzp-launcher.p
 | Счёт боёв Brooks | `vzp-launcher.pro/api/wars` + карточка [176611](https://vzp-gta5rp.com/stats/families/176611) | средняя, не GTA5RP |
 | Кто из состава онлайн в игре | нет | — |
 
-Рекомендация: ког онлайна Richman с masterlist (поллинг ≥ 5 мин). ВЗП — только если семья ок с неофициальным лаунчером, и с пометкой «не GTA5RP».
+Ког `bot/cogs/vzp.py` постит **только новые finished** капты Brooks/Richman в канал `1552367826906521620`. Первый запуск историю не спамит. Источник: `GET /api/wars` + `GET /api/wars/{id}` (состав, урон, %).
