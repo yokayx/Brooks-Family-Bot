@@ -175,16 +175,23 @@ class PlusCog(commands.Cog, name="Plus"):
         if not participants:
             embed.add_field(name="Участники", value="Пока никто не записался.", inline=False)
             return embed
-        lines: list[str] = []
+        entries: list[tuple[discord.Member, object]] = []
         for user_id, payload in participants.items():
             member_id = _safe_int(user_id)
             if member_id is None:
                 continue
             member = guild.get_member(member_id)
-            line = participant_line(member_id, member)
-            if event.need_static:
-                line = f"{line} | {_static_of(payload)}"
-            lines.append(line)
+            if member is None:
+                continue
+            entries.append((member, payload))
+
+        lines = [
+            participant_line(index, member, _static_of(payload))
+            for index, (member, payload) in enumerate(entries, start=1)
+        ]
+        if not lines:
+            embed.add_field(name="Участники", value="Пока никто не записался.", inline=False)
+            return embed
 
         chunks = _chunk_lines(lines)
         for index, chunk in enumerate(chunks, start=1):

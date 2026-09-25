@@ -4,6 +4,7 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from bot.config import (
+    FALLBACK_NICK,
     PLUS_KIND_GENERAL,
     PLUS_KIND_PINGS,
     PLUS_KIND_VZP,
@@ -63,22 +64,22 @@ def test_game_name_no_double_family() -> None:
     assert member_game_name(_member("[Klyde_Brooks] | Илья")) == "Klyde_Brooks"
 
 
-def test_game_name_empty_when_no_tag() -> None:
+def test_game_name_fallback_shames_nick() -> None:
     from bot.plus.names import member_game_name
 
-    assert member_game_name(_member("Илья | Клайд")) == ""
+    assert member_game_name(_member("Илья | Клайд")) == f"{FALLBACK_NICK} Brooks"
 
 
-def test_participant_line_is_tag_first() -> None:
+def test_participant_line_numbering() -> None:
     from bot.plus.names import participant_line
 
     member = _member("[Klyde] | Илья", user_id=42)
-    assert participant_line(42, member) == "<@42> | Klyde Brooks"
-    assert participant_line(42, None) == "<@42>"
-    assert participant_line(42, _member("Илья | Клайд", user_id=42)) == "<@42>"
+    assert participant_line(1, member, "M4") == "1. Klyde Brooks | M4"
+    assert participant_line(2, member, "") == "2. Klyde Brooks"
+    assert participant_line(3, member) == "3. Klyde Brooks"
 
 
-def test_embed_lines_use_tag_not_number() -> None:
+def test_embed_lines_numbered() -> None:
     import json
     from datetime import datetime
     from types import SimpleNamespace
@@ -100,11 +101,13 @@ def test_embed_lines_use_tag_not_number() -> None:
         ),
     )
     embed = PlusCog.__new__(PlusCog).build_embed(_guild(), event)
-    assert embed.fields[0].value.splitlines() == ["<@7> | Klyde Brooks | M4", "<@8> | —"]
+    # участник 8 ушёл с сервера — в список не попадает
+    assert embed.fields[0].value.splitlines() == ["1. Klyde Brooks | M4"]
 
     event.need_static = False
+    event.participants_json = json.dumps({"7": {"user_id": 7, "static": ""}}, ensure_ascii=False)
     embed = PlusCog.__new__(PlusCog).build_embed(_guild(), event)
-    assert embed.fields[0].value.splitlines() == ["<@7> | Klyde Brooks", "<@8>"]
+    assert embed.fields[0].value.splitlines() == ["1. Klyde Brooks | —"]
 
     event.participants_json = "{}"
     embed = PlusCog.__new__(PlusCog).build_embed(_guild(), event)
@@ -114,7 +117,7 @@ def test_embed_lines_use_tag_not_number() -> None:
 def test_chunk_lines_keep_field_limit() -> None:
     from bot.cogs.plus import FIELD_LIMIT, _chunk_lines
 
-    lines = [f"<@{i}> | Name{i} Brooks | —" for i in range(100)]
+    lines = [f"{i}. Name{i} Brooks | —" for i in range(100)]
     chunks = _chunk_lines(lines)
     assert len(chunks) > 1
     assert sum(len(chunk) for chunk in chunks) == len(lines)
