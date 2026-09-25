@@ -19,7 +19,7 @@ from bot.config import (
 )
 from bot.db import session_scope
 from bot.models import PlusEvent
-from bot.plus.names import member_game_name
+from bot.plus.names import participant_line
 from bot.plus.timeparse import parse_event_time
 from bot.roster.manager import is_leader
 
@@ -47,6 +47,41 @@ def _load_participants(raw: str | None) -> dict:
     except json.JSONDecodeError:
         return {}
     return data if isinstance(data, dict) else {}
+
+
+# Поле эмбеда — 1024 символа, держим запас.
+FIELD_LIMIT = 1000
+
+
+def _chunk_lines(lines: list[str], limit: int = FIELD_LIMIT) -> list[list[str]]:
+    chunks: list[list[str]] = []
+    current: list[str] = []
+    size = 0
+    for line in lines:
+        extra = len(line) + (1 if current else 0)
+        if current and size + extra > limit:
+            chunks.append(current)
+            current = [line]
+            size = len(line)
+        else:
+            current.append(line)
+            size += extra
+    if current:
+        chunks.append(current)
+    return chunks
+
+
+def _safe_int(value: object) -> int | None:
+    try:
+        return int(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def _static_of(payload: object) -> str:
+    if isinstance(payload, dict):
+        return str(payload.get("static") or "").strip() or "—"
+    return "—"
 
 
 async def _say(interaction: discord.Interaction, text: str) -> None:
@@ -141,19 +176,22 @@ class PlusCog(commands.Cog, name="Plus"):
             embed.add_field(name="Участники", value="Пока никто не записался.", inline=False)
             return embed
         lines: list[str] = []
-        for index, (user_id, payload) in enumerate(participants.items(), start=1):
-            member = guild.get_member(int(user_id))
-            if member is None:
+        for user_id, payload in participants.items():
+            member_id = _safe_int(user_id)
+            if member_id is None:
                 continue
-            static = "—"
-            if isinstance(payload, dict):
-                static = str(payload.get("static") or "—") or "—"
-            lines.append(f"{index}. {member_game_name(member)} | {static}")
-        embed.add_field(
-            name=f"Участники ({len(lines)})",
-            value="\n".join(lines)[:1024] if lines else "—",
-            inline=False,
-        )
+            member = guild.get_member(member_id)
+            line = participant_line(member_id, member)
+            if event.need_static:
+                line = f"{line} | {_static_of(payload)}"
+            lines.append(line)
+
+        chunks = _chunk_lines(lines)
+        for index, chunk in enumerate(chunks, start=1):
+            title = f"Участники ({len(lines)})"
+            if len(chunks) > 1:
+                title = f"{title} · {index}/{len(chunks)}"
+            embed.add_field(name=title, value="\n".join(chunk), inline=False)
         return embed
 
     async def update_event_message(self, event_id: int) -> None:

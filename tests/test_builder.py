@@ -79,3 +79,14 @@ def test_split_section_repeats_heading() -> None:
     assert len(chunks) > 1
     assert all(c.startswith("## Main\n") for c in chunks)
     assert sum(c.count("<@") for c in chunks) == 80
+
+
+def test_pipe_nick_without_brackets() -> None:
+    members = [
+        _member(1, "Klyde | Илья", [MAIN]),
+        _member(2, "[Brooks] Alpha | A", [MAIN]),
+    ]
+    payload = build_roster(members)
+    main_msg = next(m for m in payload.messages if m.startswith("## Main"))
+    assert "<@1> | Klyde" in main_msg
+    assert "<@2> | Alpha" in main_msg

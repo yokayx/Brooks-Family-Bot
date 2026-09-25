@@ -41,3 +41,81 @@ def test_parse_bad() -> None:
         parse_event_time("вечер")
     with pytest.raises(ValueError):
         parse_event_time("25:00")
+
+
+def _member(nick: str | None, user_id: int = 1):
+    from types import SimpleNamespace
+
+    return SimpleNamespace(id=user_id, nick=nick, display_name=nick or "User")
+
+
+def test_game_name_from_brackets_and_pipe() -> None:
+    from bot.plus.names import member_game_name
+
+    assert member_game_name(_member("[Klyde] | Илья")) == "Klyde Brooks"
+    assert member_game_name(_member("Klyde | Илья")) == "Klyde Brooks"
+
+
+def test_game_name_no_double_family() -> None:
+    from bot.plus.names import member_game_name
+
+    assert member_game_name(_member("Klyde Brooks | Илья")) == "Klyde Brooks"
+    assert member_game_name(_member("[Klyde_Brooks] | Илья")) == "Klyde_Brooks"
+
+
+def test_game_name_empty_when_no_tag() -> None:
+    from bot.plus.names import member_game_name
+
+    assert member_game_name(_member("Илья | Клайд")) == ""
+
+
+def test_participant_line_is_tag_first() -> None:
+    from bot.plus.names import participant_line
+
+    member = _member("[Klyde] | Илья", user_id=42)
+    assert participant_line(42, member) == "<@42> | Klyde Brooks"
+    assert participant_line(42, None) == "<@42>"
+    assert participant_line(42, _member("Илья | Клайд", user_id=42)) == "<@42>"
+
+
+def test_embed_lines_use_tag_not_number() -> None:
+    import json
+    from datetime import datetime
+    from types import SimpleNamespace
+
+    from bot.cogs.plus import PlusCog
+
+    def _guild() -> SimpleNamespace:
+        members = {7: _member("[Klyde] | Илья", user_id=7)}
+        return SimpleNamespace(get_member=lambda uid: members.get(uid))
+
+    event = SimpleNamespace(
+        event_time=datetime(2026, 9, 25, 20, 0, tzinfo=MSK),
+        event_kind=PLUS_KIND_GENERAL,
+        reason="капт",
+        need_static=True,
+        participants_json=json.dumps(
+            {"7": {"user_id": 7, "static": "M4"}, "8": {"user_id": 8, "static": ""}},
+            ensure_ascii=False,
+        ),
+    )
+    embed = PlusCog.__new__(PlusCog).build_embed(_guild(), event)
+    assert embed.fields[0].value.splitlines() == ["<@7> | Klyde Brooks | M4", "<@8> | —"]
+
+    event.need_static = False
+    embed = PlusCog.__new__(PlusCog).build_embed(_guild(), event)
+    assert embed.fields[0].value.splitlines() == ["<@7> | Klyde Brooks", "<@8>"]
+
+    event.participants_json = "{}"
+    embed = PlusCog.__new__(PlusCog).build_embed(_guild(), event)
+    assert embed.fields[0].value == "Пока никто не записался."
+
+
+def test_chunk_lines_keep_field_limit() -> None:
+    from bot.cogs.plus import FIELD_LIMIT, _chunk_lines
+
+    lines = [f"<@{i}> | Name{i} Brooks | —" for i in range(100)]
+    chunks = _chunk_lines(lines)
+    assert len(chunks) > 1
+    assert sum(len(chunk) for chunk in chunks) == len(lines)
+    assert all(len("\n".join(chunk)) <= FIELD_LIMIT for chunk in chunks)
