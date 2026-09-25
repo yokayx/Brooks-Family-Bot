@@ -8,7 +8,7 @@ from bot.config import (
     FAMILY_NAME,
     RANK_ROLES,
 )
-from bot.roster.names import extract_name
+from bot.roster.names import extract_name, with_family
 
 
 class RoleLike(Protocol):
@@ -31,7 +31,7 @@ class RosterPayload:
 
 
 def _profile_name(member: MemberLike) -> str:
-    return extract_name(member.nick or member.display_name)
+    return with_family(extract_name(member.nick or member.display_name))
 
 
 def _split_section(title: str, lines: list[str], limit: int = DISCORD_MESSAGE_LIMIT) -> list[str]:

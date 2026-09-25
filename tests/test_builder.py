@@ -35,9 +35,9 @@ def test_header_unique_count_and_multi_role() -> None:
     assert payload.messages[0] == "# Состав Brooks\n## Численность: 3"
     owner_msg = next(m for m in payload.messages if m.startswith("## Owner"))
     main_msg = next(m for m in payload.messages if m.startswith("## Main"))
-    assert "<@1> | Klyde" in owner_msg
-    assert "<@1> | Klyde" in main_msg
-    assert "<@3> | " + FALLBACK_NICK in main_msg
+    assert "<@1> | Klyde Brooks" in owner_msg
+    assert "<@1> | Klyde Brooks" in main_msg
+    assert "<@3> | " + FALLBACK_NICK + " Brooks" in main_msg
 
 
 def test_empty_ranks_omitted() -> None:
@@ -88,5 +88,5 @@ def test_pipe_nick_without_brackets() -> None:
     ]
     payload = build_roster(members)
     main_msg = next(m for m in payload.messages if m.startswith("## Main"))
-    assert "<@1> | Klyde" in main_msg
+    assert "<@1> | Klyde Brooks" in main_msg
     assert "<@2> | Alpha" in main_msg

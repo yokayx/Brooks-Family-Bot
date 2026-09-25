@@ -1,5 +1,5 @@
 from bot.config import FALLBACK_NICK
-from bot.roster.names import extract_name
+from bot.roster.names import extract_name, with_family
 
 
 def test_brackets_gta_nick() -> None:
@@ -53,3 +53,11 @@ def test_cyrillic_before_pipe_is_not_a_tag() -> None:
 def test_empty() -> None:
     assert extract_name(None) == FALLBACK_NICK
     assert extract_name("") == FALLBACK_NICK
+
+
+def test_with_family_appends_once() -> None:
+    assert with_family("Klyde") == "Klyde Brooks"
+    assert with_family("Klyde_Brooks") == "Klyde_Brooks"
+    assert with_family("klyde brooks") == "klyde brooks"
+    assert with_family(FALLBACK_NICK) == f"{FALLBACK_NICK} Brooks"
+    assert with_family("") == ""

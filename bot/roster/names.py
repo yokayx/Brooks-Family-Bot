@@ -16,7 +16,19 @@ _NAME_RE = re.compile(r"[A-Za-z][A-Za-z0-9_.'\- ]*")
 # Чем обрезаем края найденного имени
 _TRIM = " \t\r\n|·,–—-."
 
+# Имя уже с семейным тегом: Klyde Brooks, Klyde_Brooks
+_FAMILY_SUFFIX_RE = re.compile(rf"(?:^|[\s._\-]){re.escape(FAMILY_NAME)}$", re.IGNORECASE)
+
 MAX_NAME_LEN = 32
+
+
+def with_family(name: str) -> str:
+    """Игровой тег с семьёй: `Klyde Brooks`. Второй раз Brooks не лепим."""
+    if not name:
+        return name
+    if _FAMILY_SUFFIX_RE.search(name):
+        return name
+    return f"{name} {FAMILY_NAME}"
 
 
 def _clean(value: str) -> str:

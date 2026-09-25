@@ -1,14 +1,8 @@
 from __future__ import annotations
 
-import re
-
 from discord import Member
 
-from bot.config import FAMILY_NAME
-from bot.roster.names import extract_name
-
-# Имя уже с семейным тегом: Klyde Brooks, Klyde_Brooks
-_FAMILY_SUFFIX_RE = re.compile(rf"(?:^|[\s._\-]){re.escape(FAMILY_NAME)}$", re.IGNORECASE)
+from bot.roster.names import extract_name, with_family
 
 
 def member_game_name(member: Member) -> str:
@@ -17,10 +11,7 @@ def member_game_name(member: Member) -> str:
     Тег — содержимое первых `[]` латиницей или, если скобок нет, часть ника
     до первой `|`. Не вытащился — как в составе, `НИКНЕЙМ ПО ФОРМЕ…`.
     """
-    name = extract_name(member.nick or member.display_name)
-    if _FAMILY_SUFFIX_RE.search(name):
-        return name
-    return f"{name} {FAMILY_NAME}"
+    return with_family(extract_name(member.nick or member.display_name))
 
 
 def participant_line(index: int, member: Member, static: str | None = None) -> str:
