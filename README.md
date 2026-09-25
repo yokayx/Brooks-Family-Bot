@@ -24,6 +24,8 @@ cp .env.example .env
 4. В `.env` — `DISCORD_TOKEN`.
 5. `python -m bot`
 
+Или Docker: `docker compose up -d --build`. База в `./data`. Подробности: [`docs/docker.md`](docs/docker.md).
+
 После старта бот сам собирает канал состава. Руководство: `/refresh`.
 
 Итоги ВЗП Brooks (Richman) — в канал `1552367826906521620`, источник `vzp-launcher.pro/api/wars` (неофициально). `/vzp` — ручная проверка.

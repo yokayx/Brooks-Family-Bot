@@ -1,0 +1,19 @@
+services:
+  bot:
+    build: .
+    image: brooks-family-bot:latest
+    container_name: brooks-bot
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 20s
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: sqlite+aiosqlite:///data/brooks.db
+    volumes:
+      - ./data:/app/data
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
