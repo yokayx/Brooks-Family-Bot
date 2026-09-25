@@ -59,5 +59,5 @@ def test_with_family_appends_once() -> None:
     assert with_family("Klyde") == "Klyde Brooks"
     assert with_family("Klyde_Brooks") == "Klyde_Brooks"
     assert with_family("klyde brooks") == "klyde brooks"
-    assert with_family(FALLBACK_NICK) == f"{FALLBACK_NICK} Brooks"
+    assert with_family(FALLBACK_NICK) == FALLBACK_NICK  # к заглушке семью не пишем
     assert with_family("") == ""

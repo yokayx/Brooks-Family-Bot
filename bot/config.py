@@ -33,7 +33,7 @@ LEADERSHIP_ROLE_IDS: tuple[int, ...] = (
 )
 
 FAMILY_NAME = "Brooks"
-FALLBACK_NICK = "НИКНЕЙМ ПО ФОРМЕ ДАЙ СУКА"
+FALLBACK_NICK = "ник по форме"
 PLACEHOLDER = "."
 ERROR_CHANNEL_TEXT = "Возникла проблема при отправке состава"
 MAX_SEND_ATTEMPTS = 3

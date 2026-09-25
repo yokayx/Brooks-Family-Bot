@@ -23,8 +23,12 @@ MAX_NAME_LEN = 32
 
 
 def with_family(name: str) -> str:
-    """Игровой тег с семьёй: `Klyde Brooks`. Второй раз Brooks не лепим."""
-    if not name:
+    """Игровой тег с семьёй: `Klyde Brooks`.
+
+    Второй раз Brooks не лепим, а к заглушке (`ник по форме`) семью не пишем
+    вообще — человека с кривым ником не надо выдавать за семью.
+    """
+    if not name or name == FALLBACK_NICK:
         return name
     if _FAMILY_SUFFIX_RE.search(name):
         return name

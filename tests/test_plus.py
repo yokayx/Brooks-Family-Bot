@@ -67,7 +67,7 @@ def test_game_name_no_double_family() -> None:
 def test_game_name_fallback_shames_nick() -> None:
     from bot.plus.names import member_game_name
 
-    assert member_game_name(_member("Илья | Клайд")) == f"{FALLBACK_NICK} Brooks"
+    assert member_game_name(_member("Илья | Клайд")) == FALLBACK_NICK
 
 
 def test_participant_line_numbering() -> None:
