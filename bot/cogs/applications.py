@@ -86,6 +86,20 @@ class ApplicationsCog(commands.Cog, name="Applications"):
         self.bot.add_view(ManagedTicketView(self))
         self.bot.add_view(PostAcceptView(self))
 
+    async def _resolve_text_channel(self, channel_id: int) -> discord.TextChannel | None:
+        """Канал ищем и в кэше, и запросом к API — иначе «канал не найден»."""
+        channel = self.bot.get_channel(channel_id)
+        if isinstance(channel, discord.TextChannel):
+            return channel
+        try:
+            fetched = await self.bot.fetch_channel(channel_id)
+        except discord.HTTPException:
+            log.exception("cannot resolve channel %s", channel_id)
+            return None
+        if isinstance(fetched, discord.TextChannel):
+            return fetched
+        return None
+
     def _staff_roles(self, guild: discord.Guild) -> list[discord.Role]:
         wanted = (*LEADERSHIP_ROLE_IDS, RECRUITER_ROLE_ID)
         roles: list[discord.Role] = []
@@ -341,8 +355,8 @@ class ApplicationsCog(commands.Cog, name="Applications"):
         if interaction.guild is None:
             await _say(interaction, "Команда доступна только на сервере.")
             return
-        channel = interaction.guild.get_channel(APPLICATIONS_CHANNEL_ID)
-        if not isinstance(channel, discord.TextChannel):
+        channel = await self._resolve_text_channel(APPLICATIONS_CHANNEL_ID)
+        if channel is None:
             await _say(interaction, "Канал заявок не найден.")
             return
 
@@ -368,8 +382,8 @@ class ApplicationsCog(commands.Cog, name="Applications"):
         if interaction.guild is None:
             await _say(interaction, "Команда доступна только на сервере.")
             return
-        channel = interaction.guild.get_channel(CONTROL_PANEL_CHANNEL_ID)
-        if not isinstance(channel, discord.TextChannel):
+        channel = await self._resolve_text_channel(CONTROL_PANEL_CHANNEL_ID)
+        if channel is None:
             await _say(interaction, "Канал панели управления не найден.")
             return
 
@@ -393,8 +407,8 @@ class ApplicationsCog(commands.Cog, name="Applications"):
         if interaction.guild is None:
             await _say(interaction, "Команда доступна только на сервере.")
             return
-        channel = interaction.guild.get_channel(APPLICATIONS_CHANNEL_ID)
-        if not isinstance(channel, discord.TextChannel):
+        channel = await self._resolve_text_channel(APPLICATIONS_CHANNEL_ID)
+        if channel is None:
             await _say(interaction, "Канал заявок не найден.")
             return
         embed = _embed(

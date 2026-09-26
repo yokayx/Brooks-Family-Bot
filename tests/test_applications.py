@@ -89,3 +89,32 @@ def test_control_panel_buttons() -> None:
         "control:vzp:form",
     }
     assert view.timeout is None  # панель переживает рестарт
+
+
+async def test_resolve_text_channel_falls_back_to_fetch() -> None:
+    from unittest.mock import AsyncMock, MagicMock
+
+    from bot.cogs.applications import ApplicationsCog
+
+    channel = MagicMock(spec=discord.TextChannel)
+    channel.id = 1553239900176908289
+    bot = MagicMock()
+    bot.get_channel.return_value = None
+    bot.fetch_channel = AsyncMock(return_value=channel)
+
+    cog = ApplicationsCog.__new__(ApplicationsCog)
+    cog.bot = bot
+    resolved = await cog._resolve_text_channel(channel.id)
+
+    assert resolved is channel
+    bot.fetch_channel.assert_awaited_once_with(channel.id)
+
+
+def test_panel_commands_registered() -> None:
+    from bot.cogs.applications import ApplicationsCog
+    from bot.cogs.core import CoreCog
+
+    applications = {command.name for command in ApplicationsCog.__cog_app_commands__}
+    assert {"панель", "отправить-меню-заявок"} <= applications
+    core = {command.name for command in CoreCog.__cog_app_commands__}
+    assert "синк" in core
