@@ -30,6 +30,24 @@ class ApplicationQuestion(Base):
     order: Mapped[int] = mapped_column(Integer, default=1)
     question: Mapped[str] = mapped_column(Text)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    kind: Mapped[str] = mapped_column(Text, default="main")
+
+
+class ApplicationKind(Base):
+    """Статус набора по виду заявки: Main (фракции) и VZP."""
+
+    __tablename__ = "application_kinds"
+    kind: Mapped[str] = mapped_column(Text, primary_key=True)
+    is_open: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class BotMessage(Base):
+    """Служебные сообщения бота, которые надо уметь обновлять."""
+
+    __tablename__ = "bot_messages"
+    name: Mapped[str] = mapped_column(Text, primary_key=True)
+    channel_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    message_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
 
 class Ticket(Base):
@@ -38,6 +56,7 @@ class Ticket(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     channel_id: Mapped[int] = mapped_column(Integer, unique=True)
     applicant_id: Mapped[int] = mapped_column(Integer)
+    kind: Mapped[str] = mapped_column(Text, default="main")
     handler_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     status: Mapped[str] = mapped_column(Text, default="open")
     answers_json: Mapped[str] = mapped_column(Text, default="[]")

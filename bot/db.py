@@ -30,6 +30,7 @@ async def init_db(database_url: str) -> None:
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
         await conn.run_sync(_migrate_plus_events)
+        await conn.run_sync(_migrate_applications)
 
 
 def _ensure_column(connection, table: str, column: str, ddl: str) -> None:
@@ -41,10 +42,13 @@ def _ensure_column(connection, table: str, column: str, ddl: str) -> None:
         connection.execute(text(f"ALTER TABLE {table} ADD COLUMN {ddl}"))
 
 
+def _migrate_applications(connection) -> None:
+    _ensure_column(connection, "application_questions", "kind", "kind TEXT DEFAULT 'main'")
+    _ensure_column(connection, "tickets", "kind", "kind TEXT DEFAULT 'main'")
+
+
 def _migrate_plus_events(connection) -> None:
-    _ensure_column(
-        connection, "plus_events", "event_kind", "event_kind TEXT DEFAULT 'general'"
-    )
+    _ensure_column(connection, "plus_events", "event_kind", "event_kind TEXT DEFAULT 'general'")
     _ensure_column(connection, "plus_events", "title", "title TEXT")
 
 
