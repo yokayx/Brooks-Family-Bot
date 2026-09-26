@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -162,3 +162,14 @@ def test_static_must_be_digits() -> None:
         assert len(added) == 1
 
     asyncio.run(run())
+
+
+def test_event_time_is_shown_as_typed_msk() -> None:
+    from bot.cogs.plus import _format_event_time
+
+    # 17:00 UTC == 20:00 МСК
+    stamp = datetime(2026, 9, 26, 17, 0, tzinfo=UTC)
+    text = _format_event_time(stamp)
+    assert text.startswith("20:00 МСК")
+    assert "<t:" in text  # относительное «через N» оставляем
+    assert _format_event_time(None) == "-"

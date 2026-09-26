@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import datetime
 from typing import TYPE_CHECKING
+from zoneinfo import ZoneInfo
 
 import discord
 from discord import app_commands
@@ -11,6 +13,7 @@ from sqlalchemy import select
 
 from bot.config import (
     HEAD_VZP_ROLE_ID,
+    MOSCOW_TZ,
     PLUS_KIND_GENERAL,
     PLUS_KIND_LABELS,
     PLUS_KIND_PINGS,
@@ -27,6 +30,8 @@ if TYPE_CHECKING:
     from bot.main import BrooksBot
 
 log = logging.getLogger("brooks.plus")
+_MSK = ZoneInfo(MOSCOW_TZ)
+_MSK = ZoneInfo(MOSCOW_TZ)
 
 
 def _is_family(member: discord.Member) -> bool:
@@ -76,6 +81,28 @@ def _safe_int(value: object) -> int | None:
         return int(str(value).strip())
     except (TypeError, ValueError):
         return None
+
+
+def _format_event_time(when: datetime | None) -> str:
+    """Время сбора ровно как его указали: `20:00 МСК`, без сдвига по зоны клиента.
+
+    `<t:...:t>` Discord пересчитывает в локальное время читающего, из-за чего
+    сбор, созданный на 20:00 МСК, у кого-то показывался как 22:00. Держим
+    московское время текстом, относительное «через N» оставляем.
+    """
+    if when is None:
+        return "-"
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=_MSK)
+    local = when.astimezone(_MSK)
+    today = datetime.now(_MSK).date()
+    if local.date() == today:
+        mark = ""
+    elif (local.date() - today).days == 1:
+        mark = " · завтра"
+    else:
+        mark = f" · {local:%d.%m}"
+    return f"{local:%H:%M} МСК{mark} · <t:{int(when.timestamp())}:R>"
 
 
 def _static_of(payload: object) -> str:
@@ -169,7 +196,6 @@ class PlusCog(commands.Cog, name="Plus"):
 
     def build_embed(self, guild: discord.Guild, event: PlusEvent) -> discord.Embed:
         when = event.event_time
-        ts = int(when.timestamp()) if when is not None else 0
         kind = getattr(event, "event_kind", None) or PLUS_KIND_GENERAL
         label = _kind_label(kind)
         color = (
@@ -182,7 +208,7 @@ class PlusCog(commands.Cog, name="Plus"):
             description=(
                 f"**Тип:** {label}\n"
                 f"**Причина:** {event.reason}\n"
-                f"**Время:** <t:{ts}:t> (<t:{ts}:R>)\n"
+                f"**Время:** {_format_event_time(when)}\n"
                 f"**Нужен статик:** {'Да' if event.need_static else 'Нет'}"
             ),
             color=color,
