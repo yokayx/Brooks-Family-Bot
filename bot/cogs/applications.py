@@ -19,7 +19,6 @@ from bot.config import (
     APPLICATION_ACCEPT_ROLE_IDS,
     APPLICATION_KIND_MAIN,
     APPLICATION_KIND_VZP,
-    APPLICATION_MAX_QUESTIONS,
     APPLICATION_PING_ROLE_IDS,
     APPLICATIONS_CHANNEL_ID,
     APPLICATIONS_MESSAGE_KEY,
@@ -221,7 +220,6 @@ class ApplicationsCog(commands.Cog, name="Applications"):
         return _embed(
             f"Форма заявок · {forms.kind_label(kind)}",
             description,
-            footer=f"Максимум {APPLICATION_MAX_QUESTIONS} активных вопросов одновременно.",
         )
 
     async def ensure_can_apply(self, interaction: discord.Interaction) -> tuple[bool, str | None]:
@@ -901,17 +899,6 @@ class AddQuestionModal(discord.ui.Modal):
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
         async with session_scope() as session:
-            count_result = await session.execute(
-                select(func.count(ApplicationQuestion.id)).where(
-                    ApplicationQuestion.is_active.is_(True),
-                    ApplicationQuestion.kind == self.kind,
-                )
-            )
-            active_count = count_result.scalar_one()
-            if active_count >= APPLICATION_MAX_QUESTIONS:
-                limit = APPLICATION_MAX_QUESTIONS
-                await _say(interaction, f"Нельзя добавить больше {limit} вопросов.")
-                return
             max_order_result = await session.execute(
                 select(func.max(ApplicationQuestion.order)).where(
                     ApplicationQuestion.kind == self.kind
