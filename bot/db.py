@@ -45,6 +45,9 @@ def _ensure_column(connection, table: str, column: str, ddl: str) -> None:
 def _migrate_applications(connection) -> None:
     _ensure_column(connection, "application_questions", "kind", "kind TEXT DEFAULT 'main'")
     _ensure_column(connection, "tickets", "kind", "kind TEXT DEFAULT 'main'")
+    _ensure_column(
+        connection, "tickets", "applicant_replied", "applicant_replied BOOLEAN DEFAULT 0"
+    )
 
 
 def _migrate_plus_events(connection) -> None:

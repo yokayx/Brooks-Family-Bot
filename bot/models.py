@@ -60,6 +60,7 @@ class Ticket(Base):
     handler_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     status: Mapped[str] = mapped_column(Text, default="open")
     answers_json: Mapped[str] = mapped_column(Text, default="[]")
+    applicant_replied: Mapped[bool] = mapped_column(Boolean, default=False)
     rejection_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

@@ -46,20 +46,26 @@ def test_application_ids() -> None:
 
 def test_applications_menu_text() -> None:
     from bot.applications.forms import build_applications_text
-    from bot.config import APPLICATION_KIND_ROLE_IDS, APPLICATION_KIND_VZP, TEST_ROLE_ID
+    from bot.config import (
+        APPLICATION_CLOSED_EMOJI,
+        APPLICATION_KIND_ROLE_IDS,
+        APPLICATION_KIND_VZP,
+        APPLICATION_OPEN_EMOJI,
+        TEST_ROLE_ID,
+    )
 
     vzp_role = APPLICATION_KIND_ROLE_IDS[APPLICATION_KIND_VZP]
     text = build_applications_text(main_open=True, vzp_open=False)
     assert text.startswith("# Оформление заявки в семью")
     assert f"<@&{TEST_ROLE_ID}>: Нужны откаты с Арены." in text
     assert f"<@&{vzp_role}>: Нужны откаты с VZP и Арены." in text
-    # статусы: у Main открыт, у VZP закрыт
-    assert "> **Статус набора:** :on:" in text
-    assert "> **Статус набора:** :off:" in text
+    # статусы: у Main открыт, у VZP закрыт — кастомными эмодзи
+    assert f"> **Статус набора:** {APPLICATION_OPEN_EMOJI}" in text
+    assert f"> **Статус набора:** {APPLICATION_CLOSED_EMOJI}" in text
     assert "Возраст от 15 лет" in text
 
     closed = build_applications_text(main_open=False, vzp_open=False)
-    assert ":on:" not in closed
+    assert APPLICATION_OPEN_EMOJI not in closed
 
 
 def test_application_select_menu() -> None:
@@ -78,19 +84,28 @@ def test_application_select_menu() -> None:
 
 
 def test_control_panel_buttons() -> None:
+    """Одна кнопка на функцию: нажал — включил, нажал ещё раз — выключил."""
     from bot.cogs.applications import ApplicationsCog, ControlPanelView
 
     view = ControlPanelView(ApplicationsCog.__new__(ApplicationsCog))
-    ids = {child.custom_id for child in view.children if isinstance(child, discord.ui.Button)}
-    assert ids == {
-        "control:main:open",
-        "control:main:close",
-        "control:vzp:open",
-        "control:vzp:close",
+    buttons = [child for child in view.children if isinstance(child, discord.ui.Button)]
+    assert {button.custom_id for button in buttons} == {
+        "control:main:toggle",
+        "control:vzp:toggle",
         "control:main:form",
         "control:vzp:form",
     }
+    labels = [button.label for button in buttons]
+    assert "Набор Young" in labels and "Набор Test" in labels
     assert view.timeout is None  # панель переживает рестарт
+
+
+def test_control_panel_status_lines() -> None:
+    from bot.applications.forms import build_control_panel_description
+    from bot.config import APPLICATION_CLOSED_EMOJI, APPLICATION_OPEN_EMOJI
+
+    text = build_control_panel_description(main_open=True, vzp_open=False)
+    assert text == f"{APPLICATION_OPEN_EMOJI} Набор Young\n{APPLICATION_CLOSED_EMOJI} Набор Test"
 
 
 async def test_resolve_text_channel_falls_back_to_fetch() -> None:
@@ -147,86 +162,48 @@ def test_answers_embed_fields() -> None:
     assert embed.fields[1].value == "—"
 
 
-async def test_collect_answers(monkeypatch) -> None:
+async def test_ticket_message_pings_recruiters(monkeypatch) -> None:
     from unittest.mock import AsyncMock, MagicMock
 
     from bot.cogs.applications import ApplicationsCog
+    from bot.config import APPLICATION_PING_ROLE_IDS
 
     channel = MagicMock(spec=discord.TextChannel)
-    channel.id = 700
-    member = MagicMock(spec=discord.Member)
-    member.id = 42
-    member.bot = False
-
-    questions = [
-        SimpleNamespace(order=1, question="Ник"),
-        SimpleNamespace(order=2, question="Возраст"),
-    ]
-
-    bot = MagicMock()
-    bot.wait_for = AsyncMock(
-        side_effect=[
-            SimpleNamespace(channel=channel, author=member, content="Klyde"),
-            SimpleNamespace(channel=channel, author=member, content="20"),
-        ]
+    channel.id = 900
+    channel.send = AsyncMock()
+    author = MagicMock(spec=discord.Member)
+    author.id = 42
+    author.bot = False
+    author.mention = "<@42>"
+    message = SimpleNamespace(
+        guild=MagicMock(spec=discord.Guild),
+        author=author,
+        channel=channel,
+        content="Мой ответ",
     )
 
-    sent: list[object] = []
-
-    async def fake_send(*args: object, **kwargs: object) -> None:
-        sent.append(kwargs.get("embed") or args)
-
-    channel.send = fake_send
-
-    saved: dict = {}
-
-    async def fake_save(_self: ApplicationsCog, ticket_id: int, answers: list) -> None:
-        saved["ticket_id"] = ticket_id
-        saved["answers"] = answers
-
-    monkeypatch.setattr(ApplicationsCog, "_save_answers", fake_save)
+    ticket = SimpleNamespace(
+        id=7, channel_id=900, applicant_id=42, status="open", applicant_replied=False
+    )
 
     cog = ApplicationsCog.__new__(ApplicationsCog)
-    cog.bot = bot
-    await cog._collect_answers(channel, member, 5, questions)
 
-    assert saved["ticket_id"] == 5
-    assert saved["answers"] == [
-        {"question": "Ник", "answer": "Klyde"},
-        {"question": "Возраст", "answer": "20"},
-    ]
-    assert sent[-1].title == "Анкета заполнена"
-    assert any("Вопрос 1 из 2" in str(item) for item in sent)
+    async def fake_get_ticket(_self: ApplicationsCog, channel_id: int):
+        return ticket if channel_id == 900 else None
 
+    async def fake_mark(_self: ApplicationsCog, ticket_id: int) -> None:
+        ticket.applicant_replied = True
 
-async def test_collect_answers_timeout(monkeypatch) -> None:
-    from unittest.mock import AsyncMock, MagicMock
+    monkeypatch.setattr(ApplicationsCog, "get_ticket_for_channel", fake_get_ticket)
+    monkeypatch.setattr(ApplicationsCog, "_mark_replied", fake_mark)
 
-    from bot.cogs.applications import ApplicationsCog
+    await cog.on_message(message)
 
-    channel = MagicMock(spec=discord.TextChannel)
-    channel.id = 700
-    member = MagicMock(spec=discord.Member)
-    member.id = 42
-    member.bot = False
+    sent = channel.send.await_args.args[0]
+    for role_id in APPLICATION_PING_ROLE_IDS:
+        assert f"<@&{role_id}>" in sent
 
-    bot = MagicMock()
-    bot.wait_for = AsyncMock(side_effect=TimeoutError)
-
-    texts: list[str] = []
-
-    async def fake_send(text: str, **_kwargs: object) -> None:
-        texts.append(text)
-
-    channel.send = fake_send
-
-    async def fake_save(*_args: object, **_kwargs: object) -> None:
-        raise AssertionError("при таймауте ответы не сохраняем")
-
-    monkeypatch.setattr(ApplicationsCog, "_save_answers", fake_save)
-
-    cog = ApplicationsCog.__new__(ApplicationsCog)
-    cog.bot = bot
-    await cog._collect_answers(channel, member, 5, [SimpleNamespace(order=1, question="Ник")])
-
-    assert any("Время на заполнение" in text for text in texts)
+    # второй раз не тегаем
+    channel.send.reset_mock()
+    await cog.on_message(message)
+    channel.send.assert_not_awaited()

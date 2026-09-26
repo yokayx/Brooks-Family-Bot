@@ -17,10 +17,11 @@ from bot.applications import forms
 from bot.applications.dates import parse_date
 from bot.config import (
     APPLICATION_ACCEPT_ROLE_IDS,
-    APPLICATION_ANSWER_TIMEOUT_SECONDS,
     APPLICATION_KIND_MAIN,
+    APPLICATION_KIND_PANEL_LABELS,
     APPLICATION_KIND_VZP,
     APPLICATION_MAX_QUESTIONS,
+    APPLICATION_PING_ROLE_IDS,
     APPLICATIONS_CHANNEL_ID,
     APPLICATIONS_MESSAGE_KEY,
     CLOSED_TICKETS_CATEGORY_ID,
@@ -152,9 +153,14 @@ class ApplicationsCog(commands.Cog, name="Applications"):
 
     async def ensure_control_panel(self) -> None:
         """Панель управления: обновляем, а если сообщение пропало — отправляем заново."""
+        status = await forms.all_kinds_open()
         embed = _embed(
             "Панель управления",
-            "Набор заявок по составам и настройка форм. Кнопки доступны руководству.",
+            forms.build_control_panel_description(
+                main_open=status[APPLICATION_KIND_MAIN],
+                vzp_open=status[APPLICATION_KIND_VZP],
+            ),
+            footer="Одна кнопка на функцию: нажал — включил, нажал ещё раз — выключил.",
         )
         await self._ensure_message(
             CONTROL_MESSAGE_KEY,
@@ -313,7 +319,7 @@ class ApplicationsCog(commands.Cog, name="Applications"):
     async def open_application_ticket(
         self, guild: discord.Guild, member: discord.Member, kind: str
     ) -> discord.TextChannel:
-        """Заявка без модалки: сразу тикет, вопросы — эмбедом, ответы — сообщениями."""
+        """Тикет сразу: внутрь кладём эмбед с формой заявки, дальше человек пишет сам."""
         questions = await self.get_active_questions(kind)
         channel = await self.create_ticket_channel(guild, member)
         ticket = await self.create_ticket(channel, member, [], kind)
@@ -324,58 +330,40 @@ class ApplicationsCog(commands.Cog, name="Applications"):
         )
         if questions:
             embed.add_field(
-                name="Вопросы анкеты",
+                name="Форма заявки",
                 value="\n".join(
                     f"**{question.order}.** {question.question}" for question in questions
                 ),
                 inline=False,
             )
-            embed.set_footer(
-                text="Отвечайте в этом канале: по одному сообщению на вопрос, по порядку."
-            )
+            embed.set_footer(text="Ответы напишите в этот канал — по одному на вопрос, по порядку.")
         else:
             embed.set_footer(text="Вопросы формы не настроены.")
 
         await channel.send(embed=embed, view=ClaimTicketView(self))
-        if questions:
-            asyncio.create_task(self._collect_answers(channel, member, ticket.id, questions))
         return channel
 
-    async def _collect_answers(
-        self,
-        channel: discord.TextChannel,
-        member: discord.Member,
-        ticket_id: int,
-        questions: list[ApplicationQuestion],
-    ) -> None:
-        def check(message: discord.Message) -> bool:
-            return (
-                message.channel.id == channel.id
-                and message.author.id == member.id
-                and not message.author.bot
-            )
-
-        answers: list[dict] = []
-        for index, question in enumerate(questions, start=1):
-            await channel.send(f"**Вопрос {index} из {len(questions)}:** {question.question}")
-            try:
-                message = await self.bot.wait_for(
-                    "message", check=check, timeout=APPLICATION_ANSWER_TIMEOUT_SECONDS
-                )
-            except TimeoutError:
-                await channel.send("Время на заполнение анкеты вышло — рекрутер спросит вручную.")
-                return
-            answers.append({"question": question.question, "answer": message.content.strip()})
-
-        await self._save_answers(ticket_id, answers)
-        await channel.send(embed=_answers_embed("Анкета заполнена", answers))
-
-    async def _save_answers(self, ticket_id: int, answers: list[dict]) -> None:
+    async def _mark_replied(self, ticket_id: int) -> None:
         async with session_scope() as session:
             result = await session.execute(select(Ticket).where(Ticket.id == ticket_id))
             ticket = result.scalar_one_or_none()
             if ticket is not None:
-                ticket.answers_json = json.dumps(answers, ensure_ascii=False)
+                ticket.applicant_replied = True
+
+    @commands.Cog.listener()
+    async def on_message(self, message: discord.Message) -> None:
+        """Заявитель написал в тикете — тегаем рекрутов. Один раз на заявку."""
+        if message.guild is None or message.author.bot:
+            return
+        ticket = await self.get_ticket_for_channel(message.channel.id)
+        if ticket is None or ticket.status not in OPEN_STATUSES:
+            return
+        if ticket.applicant_id != message.author.id or ticket.applicant_replied:
+            return
+
+        await self._mark_replied(ticket.id)
+        ping = " ".join(f"<@&{role_id}>" for role_id in APPLICATION_PING_ROLE_IDS)
+        await message.channel.send(f"{ping} — {message.author.mention} заполнил анкету.")
 
     async def close_ticket(self, ticket_id: int, *, accepted: bool) -> None:
         guild = await self._guild()
@@ -515,7 +503,7 @@ class ApplicationSelectView(discord.ui.View):
 
 
 class ControlPanelView(discord.ui.View):
-    """Панель управления: набор Main/VZP и формы заявок."""
+    """Панель управления: одна кнопка на функцию — включает/выключает по нажатию."""
 
     def __init__(self, cog: ApplicationsCog) -> None:
         super().__init__(timeout=None)
@@ -528,14 +516,18 @@ class ControlPanelView(discord.ui.View):
             return False
         return True
 
-    async def _toggle(self, interaction: discord.Interaction, kind: str, is_open: bool) -> None:
+    async def _toggle(self, interaction: discord.Interaction, kind: str) -> None:
         if not await self._leader(interaction):
             return
-        await forms.set_kind_open(kind, is_open)
+        is_open = await forms.is_kind_open(kind)
+        await forms.set_kind_open(kind, not is_open)
         await interaction.response.defer(ephemeral=True, thinking=True)
-        await self.cog.refresh_applications_message()
-        state = "открыт" if is_open else "закрыт"
-        await interaction.followup.send(f"Набор {forms.kind_label(kind)}: {state}.", ephemeral=True)
+        await self.cog.ensure_control_panel()
+        await self.cog.ensure_applications_message()
+        state = "выключен" if is_open else "включён"
+        await interaction.followup.send(
+            f"Набор {forms.panel_label(kind)}: {state}.", ephemeral=True
+        )
 
     async def _form(self, interaction: discord.Interaction, kind: str) -> None:
         if not await self._leader(interaction):
@@ -546,55 +538,37 @@ class ControlPanelView(discord.ui.View):
         )
 
     @discord.ui.button(
-        label="Открыть набор Main",
-        style=discord.ButtonStyle.success,
-        custom_id="control:main:open",
-        row=0,
-    )
-    async def open_main(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
-        await self._toggle(interaction, APPLICATION_KIND_MAIN, True)
-
-    @discord.ui.button(
-        label="Закрыть набор Main",
-        style=discord.ButtonStyle.danger,
-        custom_id="control:main:close",
-        row=0,
-    )
-    async def close_main(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
-        await self._toggle(interaction, APPLICATION_KIND_MAIN, False)
-
-    @discord.ui.button(
-        label="Открыть набор VZP",
-        style=discord.ButtonStyle.success,
-        custom_id="control:vzp:open",
-        row=1,
-    )
-    async def open_vzp(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
-        await self._toggle(interaction, APPLICATION_KIND_VZP, True)
-
-    @discord.ui.button(
-        label="Закрыть набор VZP",
-        style=discord.ButtonStyle.danger,
-        custom_id="control:vzp:close",
-        row=1,
-    )
-    async def close_vzp(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
-        await self._toggle(interaction, APPLICATION_KIND_VZP, False)
-
-    @discord.ui.button(
-        label="Форма Main",
+        label=f"Набор {APPLICATION_KIND_PANEL_LABELS[APPLICATION_KIND_MAIN]}",
         style=discord.ButtonStyle.primary,
+        custom_id="control:main:toggle",
+        row=0,
+    )
+    async def toggle_main(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        await self._toggle(interaction, APPLICATION_KIND_MAIN)
+
+    @discord.ui.button(
+        label=f"Набор {APPLICATION_KIND_PANEL_LABELS[APPLICATION_KIND_VZP]}",
+        style=discord.ButtonStyle.primary,
+        custom_id="control:vzp:toggle",
+        row=0,
+    )
+    async def toggle_vzp(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        await self._toggle(interaction, APPLICATION_KIND_VZP)
+
+    @discord.ui.button(
+        label=f"Форма {APPLICATION_KIND_PANEL_LABELS[APPLICATION_KIND_MAIN]}",
+        style=discord.ButtonStyle.secondary,
         custom_id="control:main:form",
-        row=2,
+        row=1,
     )
     async def form_main(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         await self._form(interaction, APPLICATION_KIND_MAIN)
 
     @discord.ui.button(
-        label="Форма VZP",
-        style=discord.ButtonStyle.primary,
+        label=f"Форма {APPLICATION_KIND_PANEL_LABELS[APPLICATION_KIND_VZP]}",
+        style=discord.ButtonStyle.secondary,
         custom_id="control:vzp:form",
-        row=2,
+        row=1,
     )
     async def form_vzp(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
         await self._form(interaction, APPLICATION_KIND_VZP)

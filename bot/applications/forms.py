@@ -4,21 +4,29 @@ import discord
 from sqlalchemy import select
 
 from bot.config import (
+    APPLICATION_CLOSED_EMOJI,
     APPLICATION_KIND_LABELS,
     APPLICATION_KIND_MAIN,
+    APPLICATION_KIND_PANEL_LABELS,
     APPLICATION_KIND_REQUIREMENTS,
     APPLICATION_KIND_ROLE_IDS,
     APPLICATION_KIND_VZP,
+    APPLICATION_OPEN_EMOJI,
 )
 from bot.db import session_scope
 from bot.models import ApplicationKind, ApplicationQuestion, BotMessage
 
-OPEN_MARK = ":on:"
-CLOSED_MARK = ":off:"
+OPEN_MARK = APPLICATION_OPEN_EMOJI
+CLOSED_MARK = APPLICATION_CLOSED_EMOJI
 
 
 def kind_label(kind: str) -> str:
     return APPLICATION_KIND_LABELS.get(kind, kind)
+
+
+def panel_label(kind: str) -> str:
+    """Имя состава так, как оно написано в панели управления."""
+    return APPLICATION_KIND_PANEL_LABELS.get(kind, kind_label(kind))
 
 
 def status_mark(is_open: bool) -> str:
@@ -115,4 +123,12 @@ def build_applications_embed(*, main_open: bool, vzp_open: bool) -> discord.Embe
         title="Оформление заявки в семью",
         description=build_applications_text(main_open=main_open, vzp_open=vzp_open),
         color=discord.Color.from_rgb(88, 101, 242),
+    )
+
+
+def build_control_panel_description(*, main_open: bool, vzp_open: bool) -> str:
+    """Статусы функций панели: `<эмодзи> Набор Young` / `<эмодзи> Набор Test`."""
+    return (
+        f"{status_mark(main_open)} Набор {panel_label(APPLICATION_KIND_MAIN)}\n"
+        f"{status_mark(vzp_open)} Набор {panel_label(APPLICATION_KIND_VZP)}"
     )
