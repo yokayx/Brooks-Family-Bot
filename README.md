@@ -6,6 +6,8 @@ Python 3.11+ · discord.py 2.x · SQLite · SQLAlchemy 2.0 async · pydantic-set
 
 Логика состава: [`docs/roster.md`](docs/roster.md).
 
+При заходе на сервер бот выдаёт роль `1453123003138314329`. Логика: [`docs/autorole.md`](docs/autorole.md).
+
 После старта бот сам собирает канал состава. Руководство: `/refresh`.
 
 Итоги ВЗП Brooks (Richman) — в канал `1552367826906521620`, источник `vzp-launcher.pro/api/wars` (неофициально). `/vzp` — ручная проверка. Когда нам забивают деф, бот сам пишет в канал и создаёт сбор без статиков `DEF vs {семья}`.
