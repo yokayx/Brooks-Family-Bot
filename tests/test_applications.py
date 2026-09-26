@@ -73,3 +73,19 @@ def test_application_select_menu() -> None:
     assert options[APPLICATION_KIND_MAIN].description == "Заполнить заявку в семью."
     assert options[APPLICATION_KIND_VZP].label == "Заявка на Test"
     assert options[APPLICATION_KIND_VZP].description == "Заполнить заявку в семью на VZP."
+
+
+def test_control_panel_buttons() -> None:
+    from bot.cogs.applications import ApplicationsCog, ControlPanelView
+
+    view = ControlPanelView(ApplicationsCog.__new__(ApplicationsCog))
+    ids = {child.custom_id for child in view.children if isinstance(child, discord.ui.Button)}
+    assert ids == {
+        "control:main:open",
+        "control:main:close",
+        "control:vzp:open",
+        "control:vzp:close",
+        "control:main:form",
+        "control:vzp:form",
+    }
+    assert view.timeout is None  # панель переживает рестарт

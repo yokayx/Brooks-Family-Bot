@@ -22,6 +22,8 @@ from bot.config import (
     APPLICATIONS_CHANNEL_ID,
     APPLICATIONS_MESSAGE_KEY,
     CLOSED_TICKETS_CATEGORY_ID,
+    CONTROL_MESSAGE_KEY,
+    CONTROL_PANEL_CHANNEL_ID,
     LEADERSHIP_ROLE_IDS,
     MOSCOW_TZ,
     RANK_ROLE_IDS,
@@ -79,6 +81,7 @@ class ApplicationsCog(commands.Cog, name="Applications"):
     async def cog_load(self) -> None:
         self.bot.add_view(ApplyButtonView(self))
         self.bot.add_view(ApplicationSelectView(self))
+        self.bot.add_view(ControlPanelView(self))
         self.bot.add_view(ClaimTicketView(self))
         self.bot.add_view(ManagedTicketView(self))
         self.bot.add_view(PostAcceptView(self))
@@ -96,6 +99,31 @@ class ApplicationsCog(commands.Cog, name="Applications"):
         self, kind: str = APPLICATION_KIND_MAIN
     ) -> list[ApplicationQuestion]:
         return await forms.get_questions(kind)
+
+    async def refresh_applications_message(self) -> None:
+        """Перерисовать меню заявок (статусы набора меняются с панели)."""
+        stored = await forms.get_bot_message(APPLICATIONS_MESSAGE_KEY)
+        if stored is None:
+            return
+        channel_id, message_id = stored
+        channel = self.bot.get_channel(channel_id)
+        if not isinstance(channel, discord.TextChannel):
+            return
+        try:
+            message = await channel.fetch_message(message_id)
+        except discord.HTTPException:
+            log.exception("applications menu %s not found", message_id)
+            return
+        status = await forms.all_kinds_open()
+        text = forms.build_applications_text(
+            main_open=status[APPLICATION_KIND_MAIN],
+            vzp_open=status[APPLICATION_KIND_VZP],
+        )
+        await message.edit(
+            content=text,
+            view=ApplicationSelectView(self),
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
 
     async def get_ticket_for_channel(self, channel_id: int) -> Ticket | None:
         async with session_scope() as session:
@@ -331,6 +359,28 @@ class ApplicationsCog(commands.Cog, name="Applications"):
         await forms.save_bot_message(APPLICATIONS_MESSAGE_KEY, channel.id, message.id)
         await _say(interaction, f"Меню заявок опубликовано: {channel.mention}")
 
+    @app_commands.command(name="панель", description="Опубликовать панель управления")
+    async def send_control_panel(self, interaction: discord.Interaction) -> None:
+        member = interaction.user if isinstance(interaction.user, discord.Member) else None
+        if member is None or not is_leader(member):
+            await _say(interaction, "Нет прав.")
+            return
+        if interaction.guild is None:
+            await _say(interaction, "Команда доступна только на сервере.")
+            return
+        channel = interaction.guild.get_channel(CONTROL_PANEL_CHANNEL_ID)
+        if not isinstance(channel, discord.TextChannel):
+            await _say(interaction, "Канал панели управления не найден.")
+            return
+
+        embed = _embed(
+            "Панель управления",
+            "Набор заявок по составам и настройка форм. Кнопки доступны руководству.",
+        )
+        message = await channel.send(embed=embed, view=ControlPanelView(self))
+        await forms.save_bot_message(CONTROL_MESSAGE_KEY, channel.id, message.id)
+        await _say(interaction, f"Панель опубликована: {channel.mention}")
+
     @app_commands.command(
         name="отправить-кнопку-заявки",
         description="Отправить кнопку подачи заявки",
@@ -482,6 +532,92 @@ class ApplicationSelectView(discord.ui.View):
             await _say(interaction, f"Форма «{label}» пока не настроена.")
             return
         await interaction.response.send_modal(ApplicationModal(self.cog, questions, kind))
+
+
+class ControlPanelView(discord.ui.View):
+    """Панель управления: набор Main/VZP и формы заявок."""
+
+    def __init__(self, cog: ApplicationsCog) -> None:
+        super().__init__(timeout=None)
+        self.cog = cog
+
+    async def _leader(self, interaction: discord.Interaction) -> bool:
+        member = interaction.user if isinstance(interaction.user, discord.Member) else None
+        if member is None or not is_leader(member):
+            await _say(interaction, "Нет прав.")
+            return False
+        return True
+
+    async def _toggle(self, interaction: discord.Interaction, kind: str, is_open: bool) -> None:
+        if not await self._leader(interaction):
+            return
+        await forms.set_kind_open(kind, is_open)
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        await self.cog.refresh_applications_message()
+        state = "открыт" if is_open else "закрыт"
+        await interaction.followup.send(f"Набор {forms.kind_label(kind)}: {state}.", ephemeral=True)
+
+    async def _form(self, interaction: discord.Interaction, kind: str) -> None:
+        if not await self._leader(interaction):
+            return
+        embed = await self.cog.render_questions_embed(kind)
+        await interaction.response.send_message(
+            embed=embed, view=QuestionManagerView(self.cog, kind), ephemeral=True
+        )
+
+    @discord.ui.button(
+        label="Открыть набор Main",
+        style=discord.ButtonStyle.success,
+        custom_id="control:main:open",
+        row=0,
+    )
+    async def open_main(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        await self._toggle(interaction, APPLICATION_KIND_MAIN, True)
+
+    @discord.ui.button(
+        label="Закрыть набор Main",
+        style=discord.ButtonStyle.danger,
+        custom_id="control:main:close",
+        row=0,
+    )
+    async def close_main(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        await self._toggle(interaction, APPLICATION_KIND_MAIN, False)
+
+    @discord.ui.button(
+        label="Открыть набор VZP",
+        style=discord.ButtonStyle.success,
+        custom_id="control:vzp:open",
+        row=1,
+    )
+    async def open_vzp(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        await self._toggle(interaction, APPLICATION_KIND_VZP, True)
+
+    @discord.ui.button(
+        label="Закрыть набор VZP",
+        style=discord.ButtonStyle.danger,
+        custom_id="control:vzp:close",
+        row=1,
+    )
+    async def close_vzp(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        await self._toggle(interaction, APPLICATION_KIND_VZP, False)
+
+    @discord.ui.button(
+        label="Форма Main",
+        style=discord.ButtonStyle.primary,
+        custom_id="control:main:form",
+        row=2,
+    )
+    async def form_main(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        await self._form(interaction, APPLICATION_KIND_MAIN)
+
+    @discord.ui.button(
+        label="Форма VZP",
+        style=discord.ButtonStyle.primary,
+        custom_id="control:vzp:form",
+        row=2,
+    )
+    async def form_vzp(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
+        await self._form(interaction, APPLICATION_KIND_VZP)
 
 
 class ClaimTicketView(discord.ui.View):

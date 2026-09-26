@@ -58,6 +58,24 @@ async def is_kind_open(kind: str) -> bool:
         return bool(row.is_open) if row is not None else False
 
 
+async def set_kind_open(kind: str, is_open: bool) -> None:
+    async with session_scope() as session:
+        row = await session.get(ApplicationKind, kind)
+        if row is None:
+            session.add(ApplicationKind(kind=kind, is_open=is_open))
+            return
+        row.is_open = is_open
+
+
+async def all_kinds_open() -> dict[str, bool]:
+    result: dict[str, bool] = {kind: False for kind in APPLICATION_KIND_LABELS}
+    async with session_scope() as session:
+        rows = (await session.scalars(select(ApplicationKind))).all()
+    for row in rows:
+        result[row.kind] = bool(row.is_open)
+    return result
+
+
 async def get_questions(kind: str) -> list[ApplicationQuestion]:
     async with session_scope() as session:
         result = await session.execute(
