@@ -20,8 +20,9 @@ from bot.config import (
 )
 from bot.roster.manager import is_leader
 from bot.vzp.client import VzpClient
+from bot.vzp.dt import parse_dt
 from bot.vzp.filter import is_brooks_richman, is_finished, is_incoming_defense
-from bot.vzp.format import _parse_dt, build_result_embed
+from bot.vzp.format import build_result_embed
 from bot.vzp.store import (
     already_posted,
     defense_noticed,
@@ -177,7 +178,7 @@ class VzpCog(commands.Cog, name="VZP"):
                 continue
             if await defense_noticed(war_id):
                 continue
-            started = _parse_dt(war.get("started_at"))
+            started = parse_dt(war.get("started_at"))
             if started is None:
                 continue
 
