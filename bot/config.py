@@ -49,6 +49,11 @@ VZP_FETCH_LIMIT = 100
 VZP_FETCH_PAGES = 3
 VZP_HTTP_TIMEOUT = 25
 VZP_RETRIES = 3
+# Окно, в котором считаем активную войну «свежим забивом» (список иногда
+# хранит протухшие active-записи за несколько дней).
+VZP_DEF_WINDOW_MINUTES = 45
+# Канал для авто-уведомления и авто-сбора на деф.
+PLUS_DEF_CHANNEL_ID = VZP_CHANNEL_ID
 VZP_SOURCE_NOTE = "vzp-launcher.pro · не официальный API GTA5RP"
 
 HEAD_VZP_ROLE_ID = 1551727304382611476

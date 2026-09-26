@@ -55,6 +55,17 @@ class Birthday(Base):
     month: Mapped[int] = mapped_column(Integer)
 
 
+class VzpDefense(Base):
+    """Забив на нас: чтобы не слать уведомление об одном бое дважды."""
+
+    __tablename__ = "vzp_defenses"
+    war_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    attacker: Mapped[str] = mapped_column(Text, default="")
+    territory: Mapped[str] = mapped_column(Text, default="")
+    noticed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    event_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+
 class PlusEvent(Base):
     __tablename__ = "plus_events"
 
@@ -68,3 +79,4 @@ class PlusEvent(Base):
     participants_json: Mapped[str] = mapped_column(Text, default="{}")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     event_kind: Mapped[str] = mapped_column(Text, default="general")
+    title: Mapped[str | None] = mapped_column(Text, nullable=True)

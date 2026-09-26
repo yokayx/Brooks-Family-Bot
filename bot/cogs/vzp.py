@@ -3,21 +3,38 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass, field
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 
-from bot.config import VZP_CHANNEL_ID, VZP_POLL_SECONDS
+from bot.config import (
+    MOSCOW_TZ,
+    PLUS_DEF_CHANNEL_ID,
+    PLUS_KIND_VZP,
+    PLUS_PING_VZP_ROLE_ID,
+    VZP_CHANNEL_ID,
+    VZP_POLL_SECONDS,
+)
 from bot.roster.manager import is_leader
 from bot.vzp.client import VzpClient
-from bot.vzp.filter import is_brooks_richman, is_finished
-from bot.vzp.format import build_result_embed
-from bot.vzp.store import already_posted, has_any_posted, mark_posted
+from bot.vzp.filter import is_brooks_richman, is_finished, is_incoming_defense
+from bot.vzp.format import _parse_dt, build_result_embed
+from bot.vzp.store import (
+    already_posted,
+    defense_noticed,
+    has_any_posted,
+    mark_defense,
+    mark_posted,
+)
 
 log = logging.getLogger("brooks.vzp")
 _NO_MENTIONS = discord.AllowedMentions.none()
+_ROLE_MENTIONS = discord.AllowedMentions(everyone=False, users=False, roles=True)
 _BOOTSTRAP_SENTINEL = "__vzp_bootstrapped__"
+_MSK = ZoneInfo(MOSCOW_TZ)
 
 
 @dataclass
@@ -28,6 +45,7 @@ class VzpReport:
     candidates: int = 0
     posted: int = 0
     pending: int = 0
+    defenses: int = 0
     skipped: int = 0
     error: str | None = None
     notes: list[str] = field(default_factory=list)
@@ -40,6 +58,8 @@ class VzpReport:
         ]
         if self.pending:
             parts.append(f"ещё идёт: {self.pending}")
+        if self.defenses:
+            parts.append(f"забивов на нас: {self.defenses}")
         if self.skipped:
             parts.append(f"отмечено без отправки: {self.skipped}")
         if self.error:
@@ -144,7 +164,72 @@ class VzpCog(commands.Cog, name="VZP"):
             if bootstrapping:
                 await mark_posted(_BOOTSTRAP_SENTINEL, None)
                 report.notes.append("первый запуск: история не отправлялась")
+                return report
+
+            await self._check_defenses(candidates, report)
             return report
+
+    async def _check_defenses(self, wars: list[dict], report: VzpReport) -> None:
+        """Нам забили деф — поднимаем семью и создаём сбор без статиков."""
+        for war in wars:
+            war_id = str(war.get("id") or "")
+            if not war_id or not is_incoming_defense(war):
+                continue
+            if await defense_noticed(war_id):
+                continue
+            started = _parse_dt(war.get("started_at"))
+            if started is None:
+                continue
+
+            attacker = str(war.get("attacker_name") or "—")
+            territory = str(war.get("territory") or "—")
+            await mark_defense(war_id, attacker=attacker, territory=territory, event_id=None)
+            report.defenses += 1
+            await self._announce_defense(war_id, attacker, territory, started)
+
+    async def _announce_defense(
+        self, war_id: str, attacker: str, territory: str, started: datetime
+    ) -> None:
+        channel = await self._def_channel()
+        if channel is None:
+            log.warning("vzp def %s: канал авто-сборов недоступен", war_id)
+            return
+
+        local = started.astimezone(_MSK)
+        title = f"DEF vs {attacker}"
+        await channel.send(
+            f"<@&{PLUS_PING_VZP_ROLE_ID}> **{attacker}** забила нам деф.\n"
+            f"Точка: **{territory}** · начало **{local:%H:%M} МСК** · "
+            f"карта войны: https://vzp-launcher.pro/vzp?war={war_id}",
+            allowed_mentions=_ROLE_MENTIONS,
+        )
+
+        plus = self.bot.get_cog("Plus")
+        if plus is None:
+            log.warning("vzp def %s: ког сборов не загружен", war_id)
+            return
+        await plus.create_event(  # type: ignore[attr-defined]
+            channel,
+            creator_id=self.bot.user.id if self.bot.user else 0,
+            title=title,
+            reason=f"{title} · {territory}",
+            event_time=started,
+            need_static=False,
+            kind=PLUS_KIND_VZP,
+        )
+
+    async def _def_channel(self) -> discord.TextChannel | None:
+        channel = self.bot.get_channel(PLUS_DEF_CHANNEL_ID)
+        if channel is None:
+            try:
+                channel = await self.bot.fetch_channel(PLUS_DEF_CHANNEL_ID)
+            except discord.HTTPException:
+                log.exception("vzp def channel not found")
+                return None
+        if not isinstance(channel, discord.TextChannel):
+            log.error("vzp def channel is not text")
+            return None
+        return channel
 
     async def _channel(self) -> discord.TextChannel | None:
         channel = self.bot.get_channel(VZP_CHANNEL_ID)

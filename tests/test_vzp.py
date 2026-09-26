@@ -1,5 +1,5 @@
 from bot.vzp.filter import brooks_side, brooks_won, is_brooks_richman
-from bot.vzp.format import _lines, _our_score, build_result_embed
+from bot.vzp.format import _lines, _num, _our_score, build_result_embed
 
 BROOKS_WIN = {
     "id": "w1",
@@ -22,6 +22,7 @@ BROOKS_WIN = {
             "kills": 3,
             "damage": 900,
             "hit_percent": 26.0,
+            "headshot_percent": 5.6,
         },
         {
             "family_side": "attacker",
@@ -66,9 +67,14 @@ def test_win_loss_sides() -> None:
 
 def test_embed_win() -> None:
     embed = build_result_embed(BROOKS_WIN)
-    assert "Победа" in (embed.title or "")
+    assert embed.title == "Победа · ATK · Brooks"
     assert "4 : 1" in (embed.description or "")
     assert "ATK" in (embed.description or "")
+    # ссылка на конкретную карту войны, а не на страницу семьи
+    assert embed.url == "https://vzp-launcher.pro/vzp?war=w1"
+    # приписки-футера нет
+    assert embed.footer.text is None
+    assert embed.timestamp is None
     names = [f.name for f in embed.fields]
     assert any("Brooks" in n for n in names)
     values = "\n".join(f.value for f in embed.fields)
@@ -79,6 +85,59 @@ def test_embed_win() -> None:
 def test_participant_order() -> None:
     text = _lines(BROOKS_WIN["participants"][:2])
     assert text.index("Takashi_Brooks") < text.index("Valentin_Brooksov")
+
+
+def test_participant_line_format() -> None:
+    text = _lines([BROOKS_WIN["participants"][0]])
+    assert text == "3 900 - 26% / 5.6%HS - Takashi_Brooks"
+
+    whole = _num(20.0)
+    assert whole == "20"
+    assert _num(17.9) == "17.9"
+
+
+def test_embed_def_loss_side() -> None:
+    def_loss = {
+        **BROOKS_WIN,
+        "id": "w2",
+        "attacker_name": "Hellsize",
+        "defender_name": "Brooks",
+        "winner_side": "attacker",
+    }
+    embed = build_result_embed(def_loss)
+    assert embed.title == "Поражение · DEF · Brooks"
+    assert embed.url == "https://vzp-launcher.pro/vzp?war=w2"
+
+
+def test_incoming_defense_only_fresh_defender_wars() -> None:
+    from datetime import UTC, datetime, timedelta
+
+    from bot.vzp.filter import is_incoming_defense
+
+    now = datetime(2026, 9, 26, 12, 0, tzinfo=UTC)
+    fresh = {
+        "server_name": "RICHMAN",
+        "attacker_name": "Hellsize",
+        "defender_name": "Brooks",
+        "status": "active",
+        "started_at": "2026-09-26T11:40:00.000Z",
+    }
+    assert is_incoming_defense(fresh, now=now)
+
+    # мы нападаем — не деф
+    assert not is_incoming_defense(
+        {**fresh, "attacker_name": "Brooks", "defender_name": "Hellsize"}, now=now
+    )
+    # чужой сервер
+    assert not is_incoming_defense({**fresh, "server_name": "REDWOOD"}, now=now)
+    # бой уже доигран
+    assert not is_incoming_defense({**fresh, "status": "finished"}, now=now)
+    # протухшая active-запись (список такие хранит днями)
+    stale = {**fresh, "started_at": "2026-09-23T11:40:00.000Z"}
+    assert not is_incoming_defense(stale, now=now)
+    # начался только что
+    just = {**fresh, "started_at": (now - timedelta(minutes=1)).strftime("%Y-%m-%dT%H:%M:%S.000Z")}
+    assert is_incoming_defense(just, now=now)
 
 
 def test_is_finished_only_by_status() -> None:

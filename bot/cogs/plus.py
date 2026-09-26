@@ -204,7 +204,7 @@ class PlusCog(commands.Cog, name="Plus"):
             else discord.Color.from_rgb(88, 101, 242)
         )
         embed = discord.Embed(
-            title=f"Сбор · {label}",
+            title=getattr(event, "title", None) or f"Сбор · {label}",
             description=(
                 f"**Тип:** {label}\n"
                 f"**Причина:** {event.reason}\n"
@@ -321,6 +321,51 @@ class PlusCog(commands.Cog, name="Plus"):
         await self.update_event_message(event_id)
         await interaction.response.send_message("Вы убраны из списка участников.", ephemeral=True)
 
+    async def create_event(
+        self,
+        channel: discord.TextChannel,
+        *,
+        creator_id: int,
+        title: str | None,
+        reason: str,
+        event_time: datetime,
+        need_static: bool,
+        kind: str,
+        ping_role: int | None = None,
+    ) -> PlusEvent | None:
+        """Создать сбор, отправить эмбед с кнопками и запомнить message_id."""
+        async with session_scope() as session:
+            event = PlusEvent(
+                channel_id=channel.id,
+                creator_id=creator_id,
+                title=title,
+                reason=reason,
+                event_time=event_time,
+                need_static=need_static,
+                participants_json="{}",
+                is_active=True,
+                event_kind=kind,
+            )
+            session.add(event)
+            await session.flush()
+            event_id = event.id
+
+        stored = await self.get_event(event_id)
+        if stored is None:
+            return None
+        embed = self.build_embed(channel.guild, stored)
+        ping = f"<@&{ping_role}>" if ping_role else None
+        mentions = discord.AllowedMentions(everyone=False, users=False, roles=True)
+        message = await channel.send(
+            content=ping, embed=embed, view=PlusEventView(self), allowed_mentions=mentions
+        )
+
+        async with session_scope() as session:
+            result = await session.execute(select(PlusEvent).where(PlusEvent.id == event_id))
+            db_event = result.scalar_one()
+            db_event.message_id = message.id
+        return stored
+
     @app_commands.command(name="плюсы", description="Создать сбор на мероприятие")
     @app_commands.describe(
         тип="Общий или VZP — от этого зависит тег роли",
@@ -357,42 +402,25 @@ class PlusCog(commands.Cog, name="Plus"):
         if interaction.channel_id is None:
             await _say(interaction, "Нет канала.")
             return
-
-        async with session_scope() as session:
-            event = PlusEvent(
-                channel_id=interaction.channel_id,
-                creator_id=member.id,
-                reason=причина,
-                event_time=event_time,
-                need_static=нужен_статик,
-                participants_json="{}",
-                is_active=True,
-                event_kind=тип.value,
-            )
-            session.add(event)
-            await session.flush()
-            event_id = event.id
-
-        stored = await self.get_event(event_id)
-        if stored is None:
-            await interaction.response.send_message("Не удалось создать сбор.", ephemeral=True)
+        channel = interaction.guild.get_channel(interaction.channel_id)
+        if not isinstance(channel, discord.TextChannel):
+            await _say(interaction, "Канал недоступен.")
             return
-        embed = self.build_embed(interaction.guild, stored)
-        ping_role = PLUS_KIND_PINGS.get(тип.value)
-        ping = f"<@&{ping_role}>" if ping_role else None
-        mentions = discord.AllowedMentions(everyone=False, users=False, roles=True)
-        await interaction.response.send_message(
-            content=ping,
-            embed=embed,
-            view=PlusEventView(self),
-            allowed_mentions=mentions,
-        )
-        message = await interaction.original_response()
 
-        async with session_scope() as session:
-            result = await session.execute(select(PlusEvent).where(PlusEvent.id == event_id))
-            db_event = result.scalar_one()
-            db_event.message_id = message.id
+        stored = await self.create_event(
+            channel,
+            creator_id=member.id,
+            title=None,
+            reason=причина,
+            event_time=event_time,
+            need_static=нужен_статик,
+            kind=тип.value,
+            ping_role=PLUS_KIND_PINGS.get(тип.value),
+        )
+        if stored is None:
+            await _say(interaction, "Не удалось создать сбор.")
+            return
+        await _say(interaction, "Сбор создан.")
 
 
 async def setup(bot: commands.Bot) -> None:
