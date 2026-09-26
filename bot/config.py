@@ -119,6 +119,8 @@ LOG_MODERATION_CHANNEL_ID = 0
 LOG_SERVER_CHANNEL_ID = 0
 LOG_INVITE_CHANNEL_ID = 0
 LOG_AUDIT_CHANNEL_ID = 0
+# «Живая консоль»: сюда транслируется журнал Python
+LOG_BOT_LIVE_CHANNEL_ID = 0
 
 
 class Settings(BaseSettings):

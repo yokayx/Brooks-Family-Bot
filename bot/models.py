@@ -100,3 +100,13 @@ class PlusEvent(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     event_kind: Mapped[str] = mapped_column(Text, default="general")
     title: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class MemberStat(Base):
+    """Сколько раз участник заходил на сервер и выходил (для логов)."""
+
+    __tablename__ = "member_stats"
+
+    user_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    joins_count: Mapped[int] = mapped_column(Integer, default=0)
+    leaves_count: Mapped[int] = mapped_column(Integer, default=0)
