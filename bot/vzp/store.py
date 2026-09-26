@@ -23,14 +23,3 @@ async def has_any_posted() -> bool:
     async with session_scope() as session:
         row = (await session.scalars(select(PostedVzpWar.war_id).limit(1))).first()
         return row is not None
-
-
-async def mark_many_seen(war_ids: list[str]) -> None:
-    if not war_ids:
-        return
-    async with session_scope() as session:
-        q = select(PostedVzpWar.war_id).where(PostedVzpWar.war_id.in_(war_ids))
-        existing = set((await session.scalars(q)).all())
-        for war_id in war_ids:
-            if war_id not in existing:
-                session.add(PostedVzpWar(war_id=war_id, message_id=None))

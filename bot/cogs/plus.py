@@ -19,7 +19,7 @@ from bot.config import (
 )
 from bot.db import session_scope
 from bot.models import PlusEvent
-from bot.plus.names import participant_line
+from bot.plus.names import participant_line, participant_tag_line
 from bot.plus.timeparse import parse_event_time
 from bot.roster.manager import is_leader
 
@@ -175,7 +175,7 @@ class PlusCog(commands.Cog, name="Plus"):
         if not participants:
             embed.add_field(name="Участники", value="Пока никто не записался.", inline=False)
             return embed
-        entries: list[tuple[discord.Member, object]] = []
+        entries: list[tuple[int, discord.Member, object]] = []
         for user_id, payload in participants.items():
             member_id = _safe_int(user_id)
             if member_id is None:
@@ -183,12 +183,18 @@ class PlusCog(commands.Cog, name="Plus"):
             member = guild.get_member(member_id)
             if member is None:
                 continue
-            entries.append((member, payload))
+            entries.append((member_id, member, payload))
 
-        lines = [
-            participant_line(index, member, _static_of(payload))
-            for index, (member, payload) in enumerate(entries, start=1)
-        ]
+        if event.need_static:
+            lines = [
+                participant_line(index, member, _static_of(payload))
+                for index, (_member_id, member, payload) in enumerate(entries, start=1)
+            ]
+        else:
+            lines = [
+                participant_tag_line(index, member_id)
+                for index, (member_id, _member, _payload) in enumerate(entries, start=1)
+            ]
         if not lines:
             embed.add_field(name="Участники", value="Пока никто не записался.", inline=False)
             return embed

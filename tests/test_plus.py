@@ -104,10 +104,10 @@ def test_embed_lines_numbered() -> None:
     # участник 8 ушёл с сервера — в список не попадает
     assert embed.fields[0].value.splitlines() == ["1. Klyde Brooks | M4"]
 
+    # сбор без статика — только номер и тег участника
     event.need_static = False
-    event.participants_json = json.dumps({"7": {"user_id": 7, "static": ""}}, ensure_ascii=False)
     embed = PlusCog.__new__(PlusCog).build_embed(_guild(), event)
-    assert embed.fields[0].value.splitlines() == ["1. Klyde Brooks | —"]
+    assert embed.fields[0].value.splitlines() == ["1. <@7>"]
 
     event.participants_json = "{}"
     embed = PlusCog.__new__(PlusCog).build_embed(_guild(), event)

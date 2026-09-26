@@ -27,3 +27,12 @@ def brooks_won(war: dict) -> bool | None:
     if side is None or winner not in {"attacker", "defender"}:
         return None
     return winner == side
+
+
+def is_finished(war: dict) -> bool:
+    """Война доиграна.
+
+    В списке `/wars` статус иногда протухает (`active` при доигранном бое),
+    поэтому решение принимаем по деталям войны, а не по списку.
+    """
+    return _norm(war.get("status")) == "finished"

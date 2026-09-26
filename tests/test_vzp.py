@@ -79,3 +79,39 @@ def test_embed_win() -> None:
 def test_participant_order() -> None:
     text = _lines(BROOKS_WIN["participants"][:2])
     assert text.index("Takashi_Brooks") < text.index("Valentin_Brooksov")
+
+
+def test_is_finished_only_by_status() -> None:
+    from bot.vzp.filter import is_finished
+
+    assert is_finished(BROOKS_WIN)
+    assert not is_finished({**BROOKS_WIN, "status": "active"})
+    assert not is_finished({**BROOKS_WIN, "status": None})
+
+
+async def test_recent_wars_walks_pages_and_dedupes() -> None:
+    from bot.vzp.client import VzpClient
+
+    def _page(start: int, count: int) -> dict:
+        return {
+            "data": [{"id": f"w{start + i}", "server_name": "RICHMAN"} for i in range(count)],
+            "total": 999,
+        }
+
+    calls: list[dict] = []
+
+    class _Fake(VzpClient):
+        async def _get(self, path: str, params: dict | None = None) -> object:
+            calls.append(params or {})
+            page = int((params or {}).get("page", 1))
+            if page == 1:
+                return _page(1, 100)
+            if page == 2:
+                return _page(90, 100)  # 9 дублей с первой страницы
+            return _page(300, 5)  # короткая страница — останавливаемся
+
+    wars = await _Fake().recent_wars(pages=5)
+    assert len(wars) == 194  # 100 + 89 новых (11 дублей) + 5
+    assert [c["page"] for c in calls] == ["1", "2", "3"]
+    ids = [w["id"] for w in wars]
+    assert len(ids) == len(set(ids))
