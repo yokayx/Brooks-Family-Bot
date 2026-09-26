@@ -78,6 +78,8 @@ APPLICATION_KIND_REQUIREMENTS = {
     APPLICATION_KIND_VZP: "Нужны откаты с VZP и Арены.",
 }
 APPLICATION_MAX_QUESTIONS = 5
+# Сколько ждём ответ заявителя на вопрос анкеты в тикете (секунды).
+APPLICATION_ANSWER_TIMEOUT_SECONDS = 1800
 APPLICATIONS_MESSAGE_KEY = "applications_menu"
 CONTROL_MESSAGE_KEY = "control_panel"
 APPLICATION_MEMBER_ROLE_ID = 1552378409211142174

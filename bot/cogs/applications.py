@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo
@@ -16,6 +17,7 @@ from bot.applications import forms
 from bot.applications.dates import parse_date
 from bot.config import (
     APPLICATION_ACCEPT_ROLE_IDS,
+    APPLICATION_ANSWER_TIMEOUT_SECONDS,
     APPLICATION_KIND_MAIN,
     APPLICATION_KIND_VZP,
     APPLICATION_MAX_QUESTIONS,
@@ -68,6 +70,16 @@ def _embed(title: str, description: str = "", *, footer: str | None = None) -> d
     return embed
 
 
+def _answers_embed(title: str, answers: list[dict]) -> discord.Embed:
+    """Анкета заявителя полями вопрос -> ответ."""
+    embed = _embed(title)
+    for answer in answers:
+        question = str(answer.get("question") or "Вопрос")[:256]
+        value = str(answer.get("answer") or "").strip() or "—"
+        embed.add_field(name=question, value=value[:1024], inline=False)
+    return embed
+
+
 async def _say(interaction: discord.Interaction, text: str) -> None:
     await interaction.response.send_message(text, ephemeral=True)
 
@@ -79,12 +91,12 @@ class ApplicationsCog(commands.Cog, name="Applications"):
         self.bot = bot
 
     async def cog_load(self) -> None:
-        self.bot.add_view(ApplyButtonView(self))
         self.bot.add_view(ApplicationSelectView(self))
         self.bot.add_view(ControlPanelView(self))
         self.bot.add_view(ClaimTicketView(self))
         self.bot.add_view(ManagedTicketView(self))
         self.bot.add_view(PostAcceptView(self))
+        asyncio.create_task(self._startup_publish())
 
     async def _resolve_text_channel(self, channel_id: int) -> discord.TextChannel | None:
         """Канал ищем и в кэше, и запросом к API — иначе «канал не найден»."""
@@ -115,29 +127,69 @@ class ApplicationsCog(commands.Cog, name="Applications"):
         return await forms.get_questions(kind)
 
     async def refresh_applications_message(self) -> None:
-        """Перерисовать меню заявок (статусы набора меняются с панели)."""
-        stored = await forms.get_bot_message(APPLICATIONS_MESSAGE_KEY)
-        if stored is None:
-            return
-        channel_id, message_id = stored
-        channel = self.bot.get_channel(channel_id)
-        if not isinstance(channel, discord.TextChannel):
-            return
-        try:
-            message = await channel.fetch_message(message_id)
-        except discord.HTTPException:
-            log.exception("applications menu %s not found", message_id)
-            return
+        """Статусы набора меняются с панели — перерисовываем меню заявок."""
+        await self.ensure_applications_message()
+
+    async def _startup_publish(self) -> None:
+        """Меню заявок и панель управления публикуются сами, без команд."""
+        await self.bot.wait_until_ready()
+        await self.ensure_applications_message()
+        await self.ensure_control_panel()
+
+    async def ensure_applications_message(self) -> None:
+        """Меню заявок: обновляем, а если сообщение пропало — отправляем заново."""
         status = await forms.all_kinds_open()
-        text = forms.build_applications_text(
+        embed = forms.build_applications_embed(
             main_open=status[APPLICATION_KIND_MAIN],
             vzp_open=status[APPLICATION_KIND_VZP],
         )
-        await message.edit(
-            content=text,
-            view=ApplicationSelectView(self),
-            allowed_mentions=discord.AllowedMentions.none(),
+        await self._ensure_message(
+            APPLICATIONS_MESSAGE_KEY,
+            APPLICATIONS_CHANNEL_ID,
+            embed,
+            lambda: ApplicationSelectView(self),
         )
+
+    async def ensure_control_panel(self) -> None:
+        """Панель управления: обновляем, а если сообщение пропало — отправляем заново."""
+        embed = _embed(
+            "Панель управления",
+            "Набор заявок по составам и настройка форм. Кнопки доступны руководству.",
+        )
+        await self._ensure_message(
+            CONTROL_MESSAGE_KEY,
+            CONTROL_PANEL_CHANNEL_ID,
+            embed,
+            lambda: ControlPanelView(self),
+        )
+
+    async def _ensure_message(
+        self,
+        key: str,
+        channel_id: int,
+        embed: discord.Embed,
+        view_factory: Callable[[], discord.ui.View],
+    ) -> None:
+        stored = await forms.get_bot_message(key)
+        if stored is not None:
+            stored_channel_id, message_id = stored
+            channel = await self._resolve_text_channel(stored_channel_id)
+            if channel is not None:
+                try:
+                    message = await channel.fetch_message(message_id)
+                except discord.HTTPException:
+                    log.warning("%s: сообщение %s не найдено, отправим заново", key, message_id)
+                else:
+                    await message.edit(embed=embed, view=view_factory())
+                    return
+
+        channel = await self._resolve_text_channel(channel_id)
+        if channel is None:
+            log.error("%s: канал %s недоступен", key, channel_id)
+            return
+        message = await channel.send(embed=embed, view=view_factory())
+        await forms.save_bot_message(key, channel.id, message.id)
+        log.info("%s: опубликовано в %s", key, channel_id)
 
     async def get_ticket_for_channel(self, channel_id: int) -> Ticket | None:
         async with session_scope() as session:
@@ -258,6 +310,73 @@ class ApplicationsCog(commands.Cog, name="Applications"):
             await session.refresh(ticket)
             return ticket
 
+    async def open_application_ticket(
+        self, guild: discord.Guild, member: discord.Member, kind: str
+    ) -> discord.TextChannel:
+        """Заявка без модалки: сразу тикет, вопросы — эмбедом, ответы — сообщениями."""
+        questions = await self.get_active_questions(kind)
+        channel = await self.create_ticket_channel(guild, member)
+        ticket = await self.create_ticket(channel, member, [], kind)
+
+        embed = _embed(
+            f"Новая заявка · {forms.kind_label(kind)}",
+            f"Заявитель: {member.mention}\nТикет: #{ticket.id}",
+        )
+        if questions:
+            embed.add_field(
+                name="Вопросы анкеты",
+                value="\n".join(
+                    f"**{question.order}.** {question.question}" for question in questions
+                ),
+                inline=False,
+            )
+            embed.set_footer(
+                text="Отвечайте в этом канале: по одному сообщению на вопрос, по порядку."
+            )
+        else:
+            embed.set_footer(text="Вопросы формы не настроены.")
+
+        await channel.send(embed=embed, view=ClaimTicketView(self))
+        if questions:
+            asyncio.create_task(self._collect_answers(channel, member, ticket.id, questions))
+        return channel
+
+    async def _collect_answers(
+        self,
+        channel: discord.TextChannel,
+        member: discord.Member,
+        ticket_id: int,
+        questions: list[ApplicationQuestion],
+    ) -> None:
+        def check(message: discord.Message) -> bool:
+            return (
+                message.channel.id == channel.id
+                and message.author.id == member.id
+                and not message.author.bot
+            )
+
+        answers: list[dict] = []
+        for index, question in enumerate(questions, start=1):
+            await channel.send(f"**Вопрос {index} из {len(questions)}:** {question.question}")
+            try:
+                message = await self.bot.wait_for(
+                    "message", check=check, timeout=APPLICATION_ANSWER_TIMEOUT_SECONDS
+                )
+            except TimeoutError:
+                await channel.send("Время на заполнение анкеты вышло — рекрутер спросит вручную.")
+                return
+            answers.append({"question": question.question, "answer": message.content.strip()})
+
+        await self._save_answers(ticket_id, answers)
+        await channel.send(embed=_answers_embed("Анкета заполнена", answers))
+
+    async def _save_answers(self, ticket_id: int, answers: list[dict]) -> None:
+        async with session_scope() as session:
+            result = await session.execute(select(Ticket).where(Ticket.id == ticket_id))
+            ticket = result.scalar_one_or_none()
+            if ticket is not None:
+                ticket.answers_json = json.dumps(answers, ensure_ascii=False)
+
     async def close_ticket(self, ticket_id: int, *, accepted: bool) -> None:
         guild = await self._guild()
         if guild is None:
@@ -344,169 +463,6 @@ class ApplicationsCog(commands.Cog, name="Applications"):
             embed=embed, view=QuestionManagerView(self, вид.value), ephemeral=True
         )
 
-    @app_commands.command(
-        name="отправить-меню-заявок", description="Опубликовать меню заявок (Young / Test)"
-    )
-    async def send_application_menu(self, interaction: discord.Interaction) -> None:
-        member = interaction.user if isinstance(interaction.user, discord.Member) else None
-        if member is None or not is_leader(member):
-            await _say(interaction, "Нет прав.")
-            return
-        if interaction.guild is None:
-            await _say(interaction, "Команда доступна только на сервере.")
-            return
-        channel = await self._resolve_text_channel(APPLICATIONS_CHANNEL_ID)
-        if channel is None:
-            await _say(interaction, "Канал заявок не найден.")
-            return
-
-        status = await forms.all_kinds_open()
-        text = forms.build_applications_text(
-            main_open=status[APPLICATION_KIND_MAIN],
-            vzp_open=status[APPLICATION_KIND_VZP],
-        )
-        message = await channel.send(
-            content=text,
-            view=ApplicationSelectView(self),
-            allowed_mentions=discord.AllowedMentions.none(),
-        )
-        await forms.save_bot_message(APPLICATIONS_MESSAGE_KEY, channel.id, message.id)
-        await _say(interaction, f"Меню заявок опубликовано: {channel.mention}")
-
-    @app_commands.command(name="панель", description="Опубликовать панель управления")
-    async def send_control_panel(self, interaction: discord.Interaction) -> None:
-        member = interaction.user if isinstance(interaction.user, discord.Member) else None
-        if member is None or not is_leader(member):
-            await _say(interaction, "Нет прав.")
-            return
-        if interaction.guild is None:
-            await _say(interaction, "Команда доступна только на сервере.")
-            return
-        channel = await self._resolve_text_channel(CONTROL_PANEL_CHANNEL_ID)
-        if channel is None:
-            await _say(interaction, "Канал панели управления не найден.")
-            return
-
-        embed = _embed(
-            "Панель управления",
-            "Набор заявок по составам и настройка форм. Кнопки доступны руководству.",
-        )
-        message = await channel.send(embed=embed, view=ControlPanelView(self))
-        await forms.save_bot_message(CONTROL_MESSAGE_KEY, channel.id, message.id)
-        await _say(interaction, f"Панель опубликована: {channel.mention}")
-
-    @app_commands.command(
-        name="отправить-кнопку-заявки",
-        description="Отправить кнопку подачи заявки",
-    )
-    async def send_apply_button(self, interaction: discord.Interaction) -> None:
-        member = interaction.user if isinstance(interaction.user, discord.Member) else None
-        if member is None or not is_leader(member):
-            await _say(interaction, "Нет прав.")
-            return
-        if interaction.guild is None:
-            await _say(interaction, "Команда доступна только на сервере.")
-            return
-        channel = await self._resolve_text_channel(APPLICATIONS_CHANNEL_ID)
-        if channel is None:
-            await _say(interaction, "Канал заявок не найден.")
-            return
-        embed = _embed(
-            "Заявки в семью",
-            "Нажмите кнопку ниже, чтобы подать заявку в семью.",
-        )
-        await channel.send(embed=embed, view=ApplyButtonView(self))
-        await _say(interaction, "Сообщение с кнопкой отправлено.")
-
-
-class ApplicationModal(discord.ui.Modal):
-    def __init__(
-        self,
-        cog: ApplicationsCog,
-        questions: list[ApplicationQuestion],
-        kind: str = APPLICATION_KIND_MAIN,
-    ) -> None:
-        super().__init__(title=f"Заявка в семью · {forms.kind_label(kind)}")
-        self.cog = cog
-        self.questions = questions
-        self.kind = kind
-        for question in questions:
-            self.add_item(
-                discord.ui.TextInput(
-                    label=f"{question.order}. {question.question}"[:45],
-                    placeholder=question.question[:100],
-                    custom_id=f"question_{question.id}",
-                    style=discord.TextStyle.paragraph,
-                    max_length=1000,
-                )
-            )
-
-    async def on_submit(self, interaction: discord.Interaction) -> None:
-        member = interaction.user if isinstance(interaction.user, discord.Member) else None
-        if interaction.guild is None or member is None:
-            await _say(interaction, "Заявку можно подать только на сервере.")
-            return
-
-        await interaction.response.defer(ephemeral=True, thinking=True)
-        can_apply, reason = await self.cog.ensure_can_apply(interaction)
-        if not can_apply:
-            await interaction.followup.send(reason or "Заявку подать нельзя.", ephemeral=True)
-            return
-
-        answers: list[dict] = []
-        for child, question in zip(self.children, self.questions, strict=True):
-            if isinstance(child, discord.ui.TextInput):
-                answers.append({"question": question.question, "answer": str(child).strip()})
-
-        try:
-            channel = await self.cog.create_ticket_channel(interaction.guild, member)
-        except Exception:
-            log.exception("cannot create ticket channel for %s", member.id)
-            await interaction.followup.send("Не удалось создать канал заявки.", ephemeral=True)
-            return
-        ticket = await self.cog.create_ticket(channel, member, answers, self.kind)
-
-        embed = _embed(
-            f"Новая заявка в семью · {forms.kind_label(self.kind)}",
-            f"Заявитель: {member.mention}\nТикет: #{ticket.id}",
-        )
-        for answer in answers:
-            name = str(answer.get("question") or "Вопрос")[:256]
-            value = str(answer.get("answer") or "—")[:1024]
-            embed.add_field(name=name, value=value or "—", inline=False)
-
-        await channel.send(embed=embed, view=ClaimTicketView(self.cog))
-        await interaction.followup.send(f"Заявка создана: {channel.mention}", ephemeral=True)
-
-
-class ApplyButtonView(discord.ui.View):
-    def __init__(self, cog: ApplicationsCog) -> None:
-        super().__init__(timeout=None)
-        self.cog = cog
-
-    @discord.ui.button(
-        label="Подать заявку в семью",
-        style=discord.ButtonStyle.success,
-        custom_id="applications:apply",
-    )
-    async def apply(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
-        if not await forms.is_kind_open(APPLICATION_KIND_MAIN):
-            await _say(interaction, "Набор на этот состав сейчас приостановлен.")
-            return
-        can_apply, reason = await self.cog.ensure_can_apply(interaction)
-        if not can_apply:
-            await _say(interaction, reason or "Заявку подать нельзя.")
-            return
-
-        questions = await self.cog.get_active_questions(APPLICATION_KIND_MAIN)
-        if not questions:
-            await _say(interaction, "Форма пока не настроена.")
-            return
-
-        await interaction.response.send_modal(
-            ApplicationModal(self.cog, questions, APPLICATION_KIND_MAIN)
-        )
-
 
 class ApplicationSelectView(discord.ui.View):
     """Меню заявок: Young (Main) или Test (VZP). Живёт после рестарта."""
@@ -540,12 +496,22 @@ class ApplicationSelectView(discord.ui.View):
         if not can_apply:
             await _say(interaction, reason or "Заявку подать нельзя.")
             return
-        questions = await self.cog.get_active_questions(kind)
-        if not questions:
-            label = forms.kind_label(kind)
-            await _say(interaction, f"Форма «{label}» пока не настроена.")
+        if interaction.guild is None:
+            await _say(interaction, "Заявку можно подать только на сервере.")
             return
-        await interaction.response.send_modal(ApplicationModal(self.cog, questions, kind))
+        member = interaction.user if isinstance(interaction.user, discord.Member) else None
+        if member is None:
+            await _say(interaction, "Не удалось определить участника.")
+            return
+
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        try:
+            channel = await self.cog.open_application_ticket(interaction.guild, member, kind)
+        except Exception:
+            log.exception("cannot open application ticket for %s", member.id)
+            await interaction.followup.send("Не удалось создать канал заявки.", ephemeral=True)
+            return
+        await interaction.followup.send(f"Заявка создана: {channel.mention}", ephemeral=True)
 
 
 class ControlPanelView(discord.ui.View):

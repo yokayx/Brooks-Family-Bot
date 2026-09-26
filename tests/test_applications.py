@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 import discord
 
 from bot.applications.dates import parse_date
@@ -110,11 +112,121 @@ async def test_resolve_text_channel_falls_back_to_fetch() -> None:
     bot.fetch_channel.assert_awaited_once_with(channel.id)
 
 
-def test_panel_commands_registered() -> None:
+def test_send_commands_removed() -> None:
+    """Меню заявок и панель публикуются сами — команд отправки быть не должно."""
     from bot.cogs.applications import ApplicationsCog
     from bot.cogs.core import CoreCog
 
     applications = {command.name for command in ApplicationsCog.__cog_app_commands__}
-    assert {"панель", "отправить-меню-заявок"} <= applications
-    core = {command.name for command in CoreCog.__cog_app_commands__}
-    assert "синк" in core
+    assert applications == {"настроить-форму"}
+    assert "синк" in {command.name for command in CoreCog.__cog_app_commands__}
+
+
+def test_applications_menu_embed() -> None:
+    from bot.applications.forms import build_applications_embed
+    from bot.config import APPLICATION_KIND_ROLE_IDS, APPLICATION_KIND_VZP, TEST_ROLE_ID
+
+    vzp_role = APPLICATION_KIND_ROLE_IDS[APPLICATION_KIND_VZP]
+    embed = build_applications_embed(main_open=True, vzp_open=False)
+    assert embed.title == "Оформление заявки в семью"
+    assert f"<@&{TEST_ROLE_ID}>" in embed.description
+    assert f"<@&{vzp_role}>" in embed.description
+    assert ":on:" in embed.description and ":off:" in embed.description
+
+
+def test_answers_embed_fields() -> None:
+    from bot.cogs.applications import _answers_embed
+
+    embed = _answers_embed(
+        "Анкета заполнена",
+        [{"question": "Ник", "answer": "Klyde"}, {"question": "Возраст", "answer": "  "}],
+    )
+    assert embed.title == "Анкета заполнена"
+    assert [field.name for field in embed.fields] == ["Ник", "Возраст"]
+    assert embed.fields[0].value == "Klyde"
+    assert embed.fields[1].value == "—"
+
+
+async def test_collect_answers(monkeypatch) -> None:
+    from unittest.mock import AsyncMock, MagicMock
+
+    from bot.cogs.applications import ApplicationsCog
+
+    channel = MagicMock(spec=discord.TextChannel)
+    channel.id = 700
+    member = MagicMock(spec=discord.Member)
+    member.id = 42
+    member.bot = False
+
+    questions = [
+        SimpleNamespace(order=1, question="Ник"),
+        SimpleNamespace(order=2, question="Возраст"),
+    ]
+
+    bot = MagicMock()
+    bot.wait_for = AsyncMock(
+        side_effect=[
+            SimpleNamespace(channel=channel, author=member, content="Klyde"),
+            SimpleNamespace(channel=channel, author=member, content="20"),
+        ]
+    )
+
+    sent: list[object] = []
+
+    async def fake_send(*args: object, **kwargs: object) -> None:
+        sent.append(kwargs.get("embed") or args)
+
+    channel.send = fake_send
+
+    saved: dict = {}
+
+    async def fake_save(_self: ApplicationsCog, ticket_id: int, answers: list) -> None:
+        saved["ticket_id"] = ticket_id
+        saved["answers"] = answers
+
+    monkeypatch.setattr(ApplicationsCog, "_save_answers", fake_save)
+
+    cog = ApplicationsCog.__new__(ApplicationsCog)
+    cog.bot = bot
+    await cog._collect_answers(channel, member, 5, questions)
+
+    assert saved["ticket_id"] == 5
+    assert saved["answers"] == [
+        {"question": "Ник", "answer": "Klyde"},
+        {"question": "Возраст", "answer": "20"},
+    ]
+    assert sent[-1].title == "Анкета заполнена"
+    assert any("Вопрос 1 из 2" in str(item) for item in sent)
+
+
+async def test_collect_answers_timeout(monkeypatch) -> None:
+    from unittest.mock import AsyncMock, MagicMock
+
+    from bot.cogs.applications import ApplicationsCog
+
+    channel = MagicMock(spec=discord.TextChannel)
+    channel.id = 700
+    member = MagicMock(spec=discord.Member)
+    member.id = 42
+    member.bot = False
+
+    bot = MagicMock()
+    bot.wait_for = AsyncMock(side_effect=TimeoutError)
+
+    texts: list[str] = []
+
+    async def fake_send(text: str, **_kwargs: object) -> None:
+        texts.append(text)
+
+    channel.send = fake_send
+
+    async def fake_save(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("при таймауте ответы не сохраняем")
+
+    monkeypatch.setattr(ApplicationsCog, "_save_answers", fake_save)
+
+    cog = ApplicationsCog.__new__(ApplicationsCog)
+    cog.bot = bot
+    await cog._collect_answers(channel, member, 5, [SimpleNamespace(order=1, question="Ник")])
+
+    assert any("Время на заполнение" in text for text in texts)

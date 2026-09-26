@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import discord
 from sqlalchemy import select
 
 from bot.config import (
@@ -106,3 +107,12 @@ async def get_bot_message(name: str) -> tuple[int, int] | None:
         if row is None or row.channel_id is None or row.message_id is None:
             return None
         return row.channel_id, row.message_id
+
+
+def build_applications_embed(*, main_open: bool, vzp_open: bool) -> discord.Embed:
+    """Меню заявок одним сообщением-эмбедом (текст тот же, что раньше постили)."""
+    return discord.Embed(
+        title="Оформление заявки в семью",
+        description=build_applications_text(main_open=main_open, vzp_open=vzp_open),
+        color=discord.Color.from_rgb(88, 101, 242),
+    )
