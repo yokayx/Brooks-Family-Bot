@@ -110,17 +110,16 @@ PLUS_KIND_PINGS = {
 }
 
 # --- Логи (ког bot/cogs/logs.py) ---------------------------------------------------
-# ID каналов подставить, когда руководство выдаст: 0 = канал не настроен, лог
-# для него просто не отправляется.
-LOG_TEXT_CHANNEL_ID = 0
-LOG_VOICE_CHANNEL_ID = 0
-LOG_MEMBER_CHANNEL_ID = 0
-LOG_MODERATION_CHANNEL_ID = 0
-LOG_SERVER_CHANNEL_ID = 0
-LOG_INVITE_CHANNEL_ID = 0
-LOG_AUDIT_CHANNEL_ID = 0
+# 0 = канал не настроен, лог для него просто не отправляется.
+LOG_TEXT_CHANNEL_ID = 1553289165179985960
+LOG_VOICE_CHANNEL_ID = 1553289200244232252
+LOG_MEMBER_CHANNEL_ID = 1553289245605634128
+LOG_MODERATION_CHANNEL_ID = 1553289349653598319
+LOG_SERVER_CHANNEL_ID = 1553289301389877268
+LOG_INVITE_CHANNEL_ID = 1553289264349839371
+LOG_AUDIT_CHANNEL_ID = 1553289418528522270
 # «Живая консоль»: сюда транслируется журнал Python
-LOG_BOT_LIVE_CHANNEL_ID = 0
+LOG_BOT_LIVE_CHANNEL_ID = 1553289439135006841
 
 
 class Settings(BaseSettings):

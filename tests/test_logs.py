@@ -33,14 +33,19 @@ def test_categories_are_mapped() -> None:
     }
 
 
-async def test_unconfigured_category_is_skipped() -> None:
+def test_log_channels_configured() -> None:
+    """Все категории логов обязаны быть настроены (id != 0)."""
+    empty = [name for name, channel_id in LogsCog.CATEGORY_CHANNELS.items() if not channel_id]
+    assert not empty, f"каналы логов не настроены: {', '.join(empty)}"
+
+
+async def test_unconfigured_category_is_skipped(monkeypatch) -> None:
     """id = 0 в конфиге — лог молча пропускается, без обращений к API."""
     cog = LogsCog.__new__(LogsCog)
     cog.bot = MagicMock()
     cog.bot.fetch_channel = AsyncMock()
-    channel = await cog.get_log_channel("text")
-    if channel is not None:  # канал уже настроен — тогда проверка не нужна
-        return
+    monkeypatch.setitem(LogsCog.CATEGORY_CHANNELS, "text", 0)
+    assert await cog.get_log_channel("text") is None
     cog.bot.fetch_channel.assert_not_awaited()
 
 
