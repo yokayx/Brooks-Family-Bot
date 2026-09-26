@@ -127,9 +127,10 @@ class Settings(BaseSettings):
 
     discord_token: str
     database_url: str = "sqlite+aiosqlite:///data/brooks.db"
-    # Привилегированный интент: включать, только если он отмечен в Discord
-    # Developer Portal (Bot -> Message Content Intent), иначе бот не залогинится.
-    message_content_intent: bool = False
+    # Привилегированный интент «Message Content»: без него Discord не присылает
+    # текст сообщений и логи удаления/правки пустые. Включён по умолчанию.
+    # Выключить принудительно: MESSAGE_CONTENT_INTENT=false
+    message_content_intent: bool = True
 
 
 def load_settings() -> Settings:
