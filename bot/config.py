@@ -98,12 +98,26 @@ PLUS_KIND_PINGS = {
     PLUS_KIND_VZP: PLUS_PING_VZP_ROLE_ID,
 }
 
+# --- Логи (ког bot/cogs/logs.py) ---------------------------------------------------
+# ID каналов подставить, когда руководство выдаст: 0 = канал не настроен, лог
+# для него просто не отправляется.
+LOG_TEXT_CHANNEL_ID = 0
+LOG_VOICE_CHANNEL_ID = 0
+LOG_MEMBER_CHANNEL_ID = 0
+LOG_MODERATION_CHANNEL_ID = 0
+LOG_SERVER_CHANNEL_ID = 0
+LOG_INVITE_CHANNEL_ID = 0
+LOG_AUDIT_CHANNEL_ID = 0
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     discord_token: str
     database_url: str = "sqlite+aiosqlite:///data/brooks.db"
+    # Привилегированный интент: включать, только если он отмечен в Discord
+    # Developer Portal (Bot -> Message Content Intent), иначе бот не залогинится.
+    message_content_intent: bool = False
 
 
 def load_settings() -> Settings:

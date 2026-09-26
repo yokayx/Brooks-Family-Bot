@@ -23,11 +23,13 @@ def setup_logging() -> None:
 
 
 class BrooksBot(commands.Bot):
-    def __init__(self, token: str, database_url: str) -> None:
+    def __init__(self, token: str, database_url: str, *, message_content: bool = False) -> None:
         intents = discord.Intents.none()
         intents.guilds = True
         intents.members = True
         intents.messages = True
+        intents.voice_states = True
+        intents.message_content = message_content
         super().__init__(command_prefix="!", intents=intents)
         self._token = token
         self._database_url = database_url
@@ -54,7 +56,11 @@ def main() -> None:
     load_dotenv()
     setup_logging()
     settings = load_settings()
-    bot = BrooksBot(settings.discord_token, settings.database_url)
+    bot = BrooksBot(
+        settings.discord_token,
+        settings.database_url,
+        message_content=settings.message_content_intent,
+    )
     bot.start_bot()
 
 
