@@ -122,3 +122,43 @@ def test_chunk_lines_keep_field_limit() -> None:
     assert len(chunks) > 1
     assert sum(len(chunk) for chunk in chunks) == len(lines)
     assert all(len("\n".join(chunk)) <= FIELD_LIMIT for chunk in chunks)
+
+
+def test_static_must_be_digits() -> None:
+    import asyncio
+    from types import SimpleNamespace
+
+    from bot.cogs.plus import StaticModal
+
+    sent: list[dict] = []
+    added: list[str | None] = []
+
+    class _Cog:
+        async def add_participant(self, interaction, event_id: int, static):
+            added.append(static)
+
+    class _Response:
+        def is_done(self) -> bool:
+            return False
+
+        async def send_message(self, text: str, ephemeral: bool = False) -> None:
+            sent.append({"text": text, "ephemeral": ephemeral})
+
+    def _make(value: str) -> StaticModal:
+        modal = StaticModal(_Cog(), 1)  # type: ignore[arg-type]
+        modal.static._value = value
+        return modal
+
+    async def run() -> None:
+        interaction = SimpleNamespace(response=_Response())
+        await _make(" 12345 ").on_submit(interaction)
+        assert added == ["12345"] and not sent
+
+        await _make("m4a1").on_submit(interaction)
+        assert len(sent) == 1 and len(added) == 1
+        assert "только цифры" in sent[0]["text"] and sent[0]["ephemeral"]
+
+        await _make("12 34").on_submit(interaction)
+        assert len(added) == 1
+
+    asyncio.run(run())

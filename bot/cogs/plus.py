@@ -88,16 +88,32 @@ async def _say(interaction: discord.Interaction, text: str) -> None:
     await interaction.response.send_message(text, ephemeral=True)
 
 
+STATIC_HINT = "Только цифры — это статический ID персонажа"
+
+
 class StaticModal(discord.ui.Modal):
     def __init__(self, cog: PlusCog, event_id: int) -> None:
         super().__init__(title="Указать статик")
         self.cog = cog
         self.event_id = event_id
-        self.static = discord.ui.TextInput(label="Статик", max_length=100)
+        self.static = discord.ui.TextInput(
+            label="Статик",
+            placeholder=STATIC_HINT,
+            min_length=1,
+            max_length=20,
+        )
         self.add_item(self.static)
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
-        await self.cog.add_participant(interaction, self.event_id, str(self.static).strip())
+        raw = str(self.static).strip()
+        if not raw.isdigit():
+            await interaction.response.send_message(
+                f"Статик — это статический ID персонажа, только цифры. "
+                f"Вы ввели: `{raw or 'пусто'}`",
+                ephemeral=True,
+            )
+            return
+        await self.cog.add_participant(interaction, self.event_id, raw)
 
 
 class PlusEventView(discord.ui.View):
