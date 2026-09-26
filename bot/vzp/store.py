@@ -1,7 +1,9 @@
+from datetime import UTC, datetime
+
 from sqlalchemy import select
 
 from bot.db import session_scope
-from bot.models import PostedVzpWar
+from bot.models import PostedVzpWar, VzpDefense
 
 
 async def already_posted(war_id: str) -> bool:
@@ -25,12 +27,23 @@ async def has_any_posted() -> bool:
         return row is not None
 
 
-async def mark_many_seen(war_ids: list[str]) -> None:
-    if not war_ids:
-        return
+async def defense_noticed(war_id: str) -> bool:
     async with session_scope() as session:
-        q = select(PostedVzpWar.war_id).where(PostedVzpWar.war_id.in_(war_ids))
-        existing = set((await session.scalars(q)).all())
-        for war_id in war_ids:
-            if war_id not in existing:
-                session.add(PostedVzpWar(war_id=war_id, message_id=None))
+        row = await session.get(VzpDefense, war_id)
+        return row is not None
+
+
+async def mark_defense(war_id: str, *, attacker: str, territory: str, event_id: int | None) -> None:
+    async with session_scope() as session:
+        row = await session.get(VzpDefense, war_id)
+        if row is not None:
+            return
+        session.add(
+            VzpDefense(
+                war_id=war_id,
+                attacker=attacker,
+                territory=territory,
+                noticed_at=datetime.now(UTC),
+                event_id=event_id,
+            )
+        )

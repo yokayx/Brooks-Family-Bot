@@ -30,6 +30,24 @@ class ApplicationQuestion(Base):
     order: Mapped[int] = mapped_column(Integer, default=1)
     question: Mapped[str] = mapped_column(Text)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    kind: Mapped[str] = mapped_column(Text, default="main")
+
+
+class ApplicationKind(Base):
+    """Статус набора по виду заявки: Main (фракции) и VZP."""
+
+    __tablename__ = "application_kinds"
+    kind: Mapped[str] = mapped_column(Text, primary_key=True)
+    is_open: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class BotMessage(Base):
+    """Служебные сообщения бота, которые надо уметь обновлять."""
+
+    __tablename__ = "bot_messages"
+    name: Mapped[str] = mapped_column(Text, primary_key=True)
+    channel_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    message_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
 
 class Ticket(Base):
@@ -38,9 +56,11 @@ class Ticket(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     channel_id: Mapped[int] = mapped_column(Integer, unique=True)
     applicant_id: Mapped[int] = mapped_column(Integer)
+    kind: Mapped[str] = mapped_column(Text, default="main")
     handler_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     status: Mapped[str] = mapped_column(Text, default="open")
     answers_json: Mapped[str] = mapped_column(Text, default="[]")
+    applicant_replied: Mapped[bool] = mapped_column(Boolean, default=False)
     rejection_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -53,6 +73,17 @@ class Birthday(Base):
     user_id: Mapped[int] = mapped_column(Integer, primary_key=True)
     day: Mapped[int] = mapped_column(Integer)
     month: Mapped[int] = mapped_column(Integer)
+
+
+class VzpDefense(Base):
+    """Забив на нас: чтобы не слать уведомление об одном бое дважды."""
+
+    __tablename__ = "vzp_defenses"
+    war_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    attacker: Mapped[str] = mapped_column(Text, default="")
+    territory: Mapped[str] = mapped_column(Text, default="")
+    noticed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    event_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
 
 class PlusEvent(Base):
@@ -68,3 +99,4 @@ class PlusEvent(Base):
     participants_json: Mapped[str] = mapped_column(Text, default="{}")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     event_kind: Mapped[str] = mapped_column(Text, default="general")
+    title: Mapped[str | None] = mapped_column(Text, nullable=True)
