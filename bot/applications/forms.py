@@ -33,6 +33,11 @@ def status_mark(is_open: bool) -> str:
     return OPEN_MARK if is_open else CLOSED_MARK
 
 
+def status_text(is_open: bool) -> str:
+    """Словами: «Набор открыт» / «Набор закрыт»."""
+    return "Набор открыт" if is_open else "Набор закрыт"
+
+
 def build_applications_text(*, main_open: bool, vzp_open: bool) -> str:
     """Сообщение с меню заявок: два состава, их требования и статус набора."""
     main_role = APPLICATION_KIND_ROLE_IDS[APPLICATION_KIND_MAIN]
@@ -42,10 +47,10 @@ def build_applications_text(*, main_open: bool, vzp_open: bool) -> str:
         "# Оформление заявки в семью\n"
         "## Состав играющий фракционные мероприятия + при желании VZP;\n"
         f"## <@&{main_role}>: {APPLICATION_KIND_REQUIREMENTS[APPLICATION_KIND_MAIN]}\n"
-        f"> **Статус набора:** {status_mark(main_open)}\n"
+        f"> **Статус набора:** {status_mark(main_open)} {status_text(main_open)}\n"
         "## Состав играющий онли VZP;\n"
         f"## <@&{vzp_role}>: {APPLICATION_KIND_REQUIREMENTS[APPLICATION_KIND_VZP]}\n"
-        f"> **Статус набора:** {status_mark(vzp_open)}\n"
+        f"> **Статус набора:** {status_mark(vzp_open)} {status_text(vzp_open)}\n"
         "### ```Что важно знать перед подачей:```\n"
         "> • Возраст от 15 лет\n"
         "> • В среднем заявки рассматриваются максимум 1 день.\n"

@@ -59,9 +59,9 @@ def test_applications_menu_text() -> None:
     assert text.startswith("# Оформление заявки в семью")
     assert f"<@&{TEST_ROLE_ID}>: Нужны откаты с Арены." in text
     assert f"<@&{vzp_role}>: Нужны откаты с VZP и Арены." in text
-    # статусы: у Main открыт, у VZP закрыт — кастомными эмодзи
-    assert f"> **Статус набора:** {APPLICATION_OPEN_EMOJI}" in text
-    assert f"> **Статус набора:** {APPLICATION_CLOSED_EMOJI}" in text
+    # статусы: у Main открыт, у VZP закрыт — кастомными эмодзи и словами
+    assert f"> **Статус набора:** {APPLICATION_OPEN_EMOJI} Набор открыт" in text
+    assert f"> **Статус набора:** {APPLICATION_CLOSED_EMOJI} Набор закрыт" in text
     assert "Возраст от 15 лет" in text
 
     closed = build_applications_text(main_open=False, vzp_open=False)
@@ -98,6 +98,37 @@ def test_control_panel_buttons() -> None:
     labels = [button.label for button in buttons]
     assert "Набор Young" in labels and "Набор Test" in labels
     assert view.timeout is None  # панель переживает рестарт
+
+
+def test_control_panel_button_colors() -> None:
+    """Цвет кнопки-переключателя зависит от состояния функции."""
+    from bot.cogs.applications import ApplicationsCog, ControlPanelView
+
+    cog = ApplicationsCog.__new__(ApplicationsCog)
+    view = ControlPanelView(cog, main_open=True, vzp_open=False)
+    styles = {
+        button.custom_id: button.style
+        for button in view.children
+        if isinstance(button, discord.ui.Button)
+    }
+    assert styles["control:main:toggle"] == discord.ButtonStyle.success
+    assert styles["control:vzp:toggle"] == discord.ButtonStyle.danger
+
+
+def test_select_shows_only_open_kinds() -> None:
+    """Закрытый состав не попадает в список, а если наборов нет — списка нет."""
+    from bot.cogs.applications import ApplicationsCog, ApplicationSelectView
+    from bot.config import APPLICATION_KIND_MAIN
+
+    cog = ApplicationsCog.__new__(ApplicationsCog)
+
+    one = ApplicationSelectView(cog, kinds=[APPLICATION_KIND_MAIN])
+    select = next(child for child in one.children if isinstance(child, discord.ui.Select))
+    assert [option.value for option in select.options] == [APPLICATION_KIND_MAIN]
+    assert select.options[0].label == "Заявка на Young"
+
+    empty = ApplicationSelectView(cog, kinds=[])
+    assert not [child for child in empty.children if isinstance(child, discord.ui.Select)]
 
 
 def test_control_panel_status_lines() -> None:

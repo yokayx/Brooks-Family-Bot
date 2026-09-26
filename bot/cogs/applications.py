@@ -18,7 +18,6 @@ from bot.applications.dates import parse_date
 from bot.config import (
     APPLICATION_ACCEPT_ROLE_IDS,
     APPLICATION_KIND_MAIN,
-    APPLICATION_KIND_PANEL_LABELS,
     APPLICATION_KIND_VZP,
     APPLICATION_MAX_QUESTIONS,
     APPLICATION_PING_ROLE_IDS,
@@ -140,6 +139,9 @@ class ApplicationsCog(commands.Cog, name="Applications"):
     async def ensure_applications_message(self) -> None:
         """Меню заявок: обновляем, а если сообщение пропало — отправляем заново."""
         status = await forms.all_kinds_open()
+        open_kinds = [
+            kind for kind in (APPLICATION_KIND_MAIN, APPLICATION_KIND_VZP) if status.get(kind)
+        ]
         embed = forms.build_applications_embed(
             main_open=status[APPLICATION_KIND_MAIN],
             vzp_open=status[APPLICATION_KIND_VZP],
@@ -148,7 +150,7 @@ class ApplicationsCog(commands.Cog, name="Applications"):
             APPLICATIONS_MESSAGE_KEY,
             APPLICATIONS_CHANNEL_ID,
             embed,
-            lambda: ApplicationSelectView(self),
+            lambda: ApplicationSelectView(self, kinds=open_kinds),
         )
 
     async def ensure_control_panel(self) -> None:
@@ -160,13 +162,16 @@ class ApplicationsCog(commands.Cog, name="Applications"):
                 main_open=status[APPLICATION_KIND_MAIN],
                 vzp_open=status[APPLICATION_KIND_VZP],
             ),
-            footer="Одна кнопка на функцию: нажал — включил, нажал ещё раз — выключил.",
         )
         await self._ensure_message(
             CONTROL_MESSAGE_KEY,
             CONTROL_PANEL_CHANNEL_ID,
             embed,
-            lambda: ControlPanelView(self),
+            lambda: ControlPanelView(
+                self,
+                main_open=status[APPLICATION_KIND_MAIN],
+                vzp_open=status[APPLICATION_KIND_VZP],
+            ),
         )
 
     async def _ensure_message(
@@ -452,31 +457,31 @@ class ApplicationsCog(commands.Cog, name="Applications"):
         )
 
 
-class ApplicationSelectView(discord.ui.View):
-    """Меню заявок: Young (Main) или Test (VZP). Живёт после рестарта."""
+class ApplicationKindSelect(discord.ui.Select):
+    """Список составов: в нём только те, на которые сейчас идёт набор."""
 
-    def __init__(self, cog: ApplicationsCog) -> None:
-        super().__init__(timeout=None)
+    def __init__(self, cog: ApplicationsCog, kinds: list[str]) -> None:
+        options = [
+            discord.SelectOption(
+                label=f"Заявка на {forms.panel_label(kind)}",
+                description=(
+                    "Заполнить заявку в семью."
+                    if kind == APPLICATION_KIND_MAIN
+                    else "Заполнить заявку в семью на VZP."
+                ),
+                value=kind,
+            )
+            for kind in kinds
+        ]
+        super().__init__(
+            custom_id="applications:kind",
+            placeholder="Выберите, какую заявку подать",
+            options=options,
+        )
         self.cog = cog
 
-    @discord.ui.select(
-        custom_id="applications:kind",
-        placeholder="Выберите, какую заявку подать",
-        options=[
-            discord.SelectOption(
-                label="Заявка на Young",
-                description="Заполнить заявку в семью.",
-                value=APPLICATION_KIND_MAIN,
-            ),
-            discord.SelectOption(
-                label="Заявка на Test",
-                description="Заполнить заявку в семью на VZP.",
-                value=APPLICATION_KIND_VZP,
-            ),
-        ],
-    )
-    async def choose(self, interaction: discord.Interaction, select: discord.ui.Select) -> None:
-        kind = select.values[0] if select.values else APPLICATION_KIND_MAIN
+    async def callback(self, interaction: discord.Interaction) -> None:
+        kind = self.values[0] if self.values else APPLICATION_KIND_MAIN
         if not await forms.is_kind_open(kind):
             await _say(interaction, "Набор на этот состав сейчас приостановлен.")
             return
@@ -502,12 +507,73 @@ class ApplicationSelectView(discord.ui.View):
         await interaction.followup.send(f"Заявка создана: {channel.mention}", ephemeral=True)
 
 
-class ControlPanelView(discord.ui.View):
-    """Панель управления: одна кнопка на функцию — включает/выключает по нажатию."""
+class ApplicationSelectView(discord.ui.View):
+    """Меню заявок: если наборы закрыты — списка нет вовсе."""
 
-    def __init__(self, cog: ApplicationsCog) -> None:
+    def __init__(self, cog: ApplicationsCog, *, kinds: list[str] | None = None) -> None:
         super().__init__(timeout=None)
         self.cog = cog
+        self.kinds = (
+            list(kinds) if kinds is not None else [APPLICATION_KIND_MAIN, APPLICATION_KIND_VZP]
+        )
+        if self.kinds:
+            self.add_item(ApplicationKindSelect(cog, self.kinds))
+
+
+class ControlPanelView(discord.ui.View):
+    """Панель управления: одна кнопка на функцию, цвет — по состоянию функции."""
+
+    def __init__(
+        self,
+        cog: ApplicationsCog,
+        *,
+        main_open: bool = False,
+        vzp_open: bool = False,
+    ) -> None:
+        super().__init__(timeout=None)
+        self.cog = cog
+        states = {
+            APPLICATION_KIND_MAIN: main_open,
+            APPLICATION_KIND_VZP: vzp_open,
+        }
+        for kind in (APPLICATION_KIND_MAIN, APPLICATION_KIND_VZP):
+            self._add_toggle(
+                kind,
+                f"Набор {forms.panel_label(kind)}",
+                states[kind],
+                f"control:{kind}:toggle",
+                row=0,
+            )
+        for kind in (APPLICATION_KIND_MAIN, APPLICATION_KIND_VZP):
+            self._add_form(kind, f"Форма {forms.panel_label(kind)}", f"control:{kind}:form", row=1)
+
+    def _add_toggle(self, kind: str, label: str, is_open: bool, custom_id: str, row: int) -> None:
+        button = discord.ui.Button(
+            label=label,
+            style=discord.ButtonStyle.success if is_open else discord.ButtonStyle.danger,
+            custom_id=custom_id,
+            row=row,
+        )
+
+        async def callback(interaction: discord.Interaction) -> None:
+            await self._toggle(interaction, kind)
+
+        button.callback = callback
+        self.add_item(button)
+
+    def _add_form(self, kind: str, label: str, custom_id: str, row: int) -> None:
+        button = discord.ui.Button(
+            label=label,
+            style=discord.ButtonStyle.secondary,
+            custom_id=custom_id,
+            row=row,
+        )
+
+        async def callback(interaction: discord.Interaction) -> None:
+            await self._form(interaction, kind)
+
+        button.callback = callback
+        self.add_item(button)
 
     async def _leader(self, interaction: discord.Interaction) -> bool:
         member = interaction.user if isinstance(interaction.user, discord.Member) else None
@@ -524,7 +590,7 @@ class ControlPanelView(discord.ui.View):
         await interaction.response.defer(ephemeral=True, thinking=True)
         await self.cog.ensure_control_panel()
         await self.cog.ensure_applications_message()
-        state = "выключен" if is_open else "включён"
+        state = forms.status_text(not is_open).lower()
         await interaction.followup.send(
             f"Набор {forms.panel_label(kind)}: {state}.", ephemeral=True
         )
@@ -536,42 +602,6 @@ class ControlPanelView(discord.ui.View):
         await interaction.response.send_message(
             embed=embed, view=QuestionManagerView(self.cog, kind), ephemeral=True
         )
-
-    @discord.ui.button(
-        label=f"Набор {APPLICATION_KIND_PANEL_LABELS[APPLICATION_KIND_MAIN]}",
-        style=discord.ButtonStyle.primary,
-        custom_id="control:main:toggle",
-        row=0,
-    )
-    async def toggle_main(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
-        await self._toggle(interaction, APPLICATION_KIND_MAIN)
-
-    @discord.ui.button(
-        label=f"Набор {APPLICATION_KIND_PANEL_LABELS[APPLICATION_KIND_VZP]}",
-        style=discord.ButtonStyle.primary,
-        custom_id="control:vzp:toggle",
-        row=0,
-    )
-    async def toggle_vzp(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
-        await self._toggle(interaction, APPLICATION_KIND_VZP)
-
-    @discord.ui.button(
-        label=f"Форма {APPLICATION_KIND_PANEL_LABELS[APPLICATION_KIND_MAIN]}",
-        style=discord.ButtonStyle.secondary,
-        custom_id="control:main:form",
-        row=1,
-    )
-    async def form_main(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
-        await self._form(interaction, APPLICATION_KIND_MAIN)
-
-    @discord.ui.button(
-        label=f"Форма {APPLICATION_KIND_PANEL_LABELS[APPLICATION_KIND_VZP]}",
-        style=discord.ButtonStyle.secondary,
-        custom_id="control:vzp:form",
-        row=1,
-    )
-    async def form_vzp(self, interaction: discord.Interaction, _: discord.ui.Button) -> None:
-        await self._form(interaction, APPLICATION_KIND_VZP)
 
 
 class ClaimTicketView(discord.ui.View):
