@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -16,6 +17,7 @@ from bot.config import (
     PLUS_KIND_VZP,
     PLUS_PING_VZP_ROLE_ID,
     VZP_CHANNEL_ID,
+    VZP_INGEST_CHANNEL_ID,
     VZP_POLL_SECONDS,
 )
 from bot.roster.manager import is_leader
@@ -23,6 +25,7 @@ from bot.vzp.client import VzpClient
 from bot.vzp.dt import parse_dt
 from bot.vzp.filter import is_brooks_richman, is_finished, is_incoming_defense
 from bot.vzp.format import build_result_embed
+from bot.vzp.ingest import extract_wars
 from bot.vzp.store import (
     already_posted,
     defense_noticed,
@@ -169,6 +172,75 @@ class VzpCog(commands.Cog, name="VZP"):
 
             await self._check_defenses(candidates, report)
             return report
+
+    async def _handle_war(self, war: dict, report: VzpReport) -> None:
+        """Одна война: доиграна — публикуем итог, иначе считаем ожидающей."""
+        war_id = str(war.get("id") or "").strip()
+        if not war_id or await already_posted(war_id):
+            return
+        if not is_finished(war):
+            report.pending += 1
+            return
+
+        channel = await self._channel()
+        if channel is None:
+            report.error = f"канал ВЗП {VZP_CHANNEL_ID} недоступен"
+            return
+        message = await channel.send(embed=build_result_embed(war), allowed_mentions=_NO_MENTIONS)
+        await mark_posted(war_id, message.id)
+        report.posted += 1
+
+    @commands.Cog.listener()
+    async def on_message(self, message: discord.Message) -> None:
+        """Приём итогов от своего инструмента: JSON в канале VZP_INGEST_CHANNEL_ID.
+
+        Формат — тот же, что отдаёт API (или список войн), поля можно
+        синонимами: см. `bot/vzp/ingest.py`.
+        """
+        if not VZP_INGEST_CHANNEL_ID or message.channel.id != VZP_INGEST_CHANNEL_ID:
+            return
+
+        payload: object = None
+        for attachment in message.attachments:
+            if attachment.filename.lower().endswith(".json"):
+                try:
+                    payload = json.loads(await attachment.read())
+                except (ValueError, discord.HTTPException):
+                    log.exception("vzp ingest: не прочитали %s", attachment.filename)
+                break
+        if payload is None and message.content:
+            text = message.content.strip()
+            if text.startswith("```"):
+                text = text.strip("`")
+                if text.lower().startswith("json"):
+                    text = text[4:]
+            try:
+                payload = json.loads(text)
+            except ValueError:
+                return
+
+        wars = extract_wars(payload)
+        if not wars:
+            log.warning("vzp ingest: в сообщении %s нет войн", message.id)
+            return
+
+        report = VzpReport(scanned=len(wars))
+        candidates = [war for war in wars if is_brooks_richman(war)]
+        report.candidates = len(candidates)
+        for war in candidates:
+            try:
+                await self._handle_war(war, report)
+            except Exception:
+                log.exception("vzp ingest: война %s не обработана", war.get("id"))
+                report.error = f"война {war.get('id')}: не обработана"
+
+        try:
+            await self._check_defenses(candidates, report)
+        except Exception:
+            log.exception("vzp ingest: проверка забивов не прошла")
+
+        self.last_report = report
+        log.info("vzp ingest: %s", report.as_text().replace("\n", "; "))
 
     async def _check_defenses(self, wars: list[dict], report: VzpReport) -> None:
         """Нам забили деф — поднимаем семью и создаём сбор без статиков."""
