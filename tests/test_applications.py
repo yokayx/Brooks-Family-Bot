@@ -1,4 +1,6 @@
+from contextlib import contextmanager
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import discord
 
@@ -131,12 +133,85 @@ def test_select_shows_only_open_kinds() -> None:
     assert not [child for child in empty.children if isinstance(child, discord.ui.Select)]
 
 
-def test_control_panel_status_lines() -> None:
-    from bot.applications.forms import build_control_panel_description
-    from bot.config import APPLICATION_CLOSED_EMOJI, APPLICATION_OPEN_EMOJI
+@contextmanager
+def patch_leader(value: bool):
+    """Подменяем проверку прав: панель доступна только руководству."""
+    with patch("bot.applications.panel.is_leader", return_value=value):
+        yield
 
-    text = build_control_panel_description(main_open=True, vzp_open=False)
-    assert text == f"{APPLICATION_OPEN_EMOJI} Набор Young\n{APPLICATION_CLOSED_EMOJI} Набор Test"
+
+def test_control_panel_lives_in_own_module() -> None:
+    """Панель управления — отдельный модуль bot/applications/panel.py."""
+    import bot.applications.panel as panel_module
+    from bot.cogs.applications import ControlPanelView as CogView
+
+    assert CogView is panel_module.ControlPanelView
+
+
+def test_control_panel_shows_compositions_and_roles() -> None:
+    """В панели — оба состава, их роли и статус набора словами."""
+    from bot.applications.panel import build_control_panel_embed
+    from bot.config import (
+        APPLICATION_CLOSED_EMOJI,
+        APPLICATION_KIND_COMPOSITIONS,
+        APPLICATION_KIND_MAIN,
+        APPLICATION_KIND_ROLE_IDS,
+        APPLICATION_KIND_VZP,
+        APPLICATION_OPEN_EMOJI,
+    )
+
+    embed = build_control_panel_embed(main_open=True, vzp_open=False).to_dict()
+
+    assert [field["name"] for field in embed["fields"]] == [
+        APPLICATION_KIND_COMPOSITIONS[APPLICATION_KIND_MAIN],
+        APPLICATION_KIND_COMPOSITIONS[APPLICATION_KIND_VZP],
+    ]
+    main_value = embed["fields"][0]["value"]
+    vzp_value = embed["fields"][1]["value"]
+    assert f"<@&{APPLICATION_KIND_ROLE_IDS[APPLICATION_KIND_MAIN]}>" in main_value
+    assert f"<@&{APPLICATION_KIND_ROLE_IDS[APPLICATION_KIND_VZP]}>" in vzp_value
+    assert APPLICATION_OPEN_EMOJI in main_value and "открыт" in main_value
+    assert APPLICATION_CLOSED_EMOJI in vzp_value and "закрыт" in vzp_value
+    assert "footer" not in embed  # в панели футера нет
+
+
+def test_applications_menu_uses_same_compositions() -> None:
+    """Меню заявок и панель называют составы одинаково."""
+    from bot.applications import forms
+    from bot.config import APPLICATION_KIND_COMPOSITIONS, APPLICATION_KIND_ROLE_IDS
+
+    text = forms.build_applications_text(main_open=True, vzp_open=False)
+
+    for kind, name in APPLICATION_KIND_COMPOSITIONS.items():
+        assert f"## {name};" in text
+        assert f"<@&{APPLICATION_KIND_ROLE_IDS[kind]}>" in text
+
+
+async def test_panel_form_button_asks_cog_for_editor() -> None:
+    """Кнопка формы не знает про модалки: редактор открывает ког."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    import bot.applications.panel as panel_module
+    from bot.config import APPLICATION_KIND_VZP
+
+    cog = MagicMock()
+    cog.ensure_control_panel = AsyncMock()
+    cog.ensure_applications_message = AsyncMock()
+    cog.open_form_editor = AsyncMock()
+    view = panel_module.ControlPanelView(cog, main_open=True, vzp_open=False)
+
+    member = MagicMock(spec=discord.Member)
+    member.roles = []
+    interaction = AsyncMock()
+    interaction.user = member
+
+    with patch_leader(False):
+        await view._form(interaction, APPLICATION_KIND_VZP)
+    cog.open_form_editor.assert_not_awaited()
+
+    with patch_leader(True):
+        await view._form(interaction, APPLICATION_KIND_VZP)
+    cog.open_form_editor.assert_awaited_once_with(interaction, APPLICATION_KIND_VZP)
 
 
 async def test_resolve_text_channel_falls_back_to_fetch() -> None:

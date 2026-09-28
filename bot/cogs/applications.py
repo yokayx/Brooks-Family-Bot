@@ -13,8 +13,9 @@ from discord import app_commands
 from discord.ext import commands
 from sqlalchemy import select
 
-from bot.applications import forms
+from bot.applications import forms, panel
 from bot.applications.dates import parse_date
+from bot.applications.panel import ControlPanelView
 from bot.config import (
     APPLICATION_ACCEPT_ROLE_IDS,
     APPLICATION_KIND_MAIN,
@@ -123,6 +124,13 @@ class ApplicationsCog(commands.Cog, name="Applications"):
                 roles.append(role)
         return roles
 
+    async def open_form_editor(self, interaction: discord.Interaction, kind: str) -> None:
+        """Менеджер вопросов состава: им пользуются команда и панель управления."""
+        embed = await self.render_questions_embed(kind)
+        await interaction.response.send_message(
+            embed=embed, view=QuestionManagerView(self, kind), ephemeral=True
+        )
+
     async def get_active_questions(
         self, kind: str = APPLICATION_KIND_MAIN
     ) -> list[ApplicationQuestion]:
@@ -158,12 +166,9 @@ class ApplicationsCog(commands.Cog, name="Applications"):
     async def ensure_control_panel(self) -> None:
         """Панель управления: обновляем, а если сообщение пропало — отправляем заново."""
         status = await forms.all_kinds_open()
-        embed = _embed(
-            "Панель управления",
-            forms.build_control_panel_description(
-                main_open=status[APPLICATION_KIND_MAIN],
-                vzp_open=status[APPLICATION_KIND_VZP],
-            ),
+        embed = panel.build_control_panel_embed(
+            main_open=status[APPLICATION_KIND_MAIN],
+            vzp_open=status[APPLICATION_KIND_VZP],
         )
         await self._ensure_message(
             CONTROL_MESSAGE_KEY,
@@ -452,10 +457,7 @@ class ApplicationsCog(commands.Cog, name="Applications"):
         if member is None or not is_leader(member):
             await _say(interaction, "Нет прав.")
             return
-        embed = await self.render_questions_embed(вид.value)
-        await interaction.response.send_message(
-            embed=embed, view=QuestionManagerView(self, вид.value), ephemeral=True
-        )
+        await self.open_form_editor(interaction, вид.value)
 
 
 class ApplicationKindSelect(discord.ui.Select):
@@ -519,90 +521,6 @@ class ApplicationSelectView(discord.ui.View):
         )
         if self.kinds:
             self.add_item(ApplicationKindSelect(cog, self.kinds))
-
-
-class ControlPanelView(discord.ui.View):
-    """Панель управления: одна кнопка на функцию, цвет — по состоянию функции."""
-
-    def __init__(
-        self,
-        cog: ApplicationsCog,
-        *,
-        main_open: bool = False,
-        vzp_open: bool = False,
-    ) -> None:
-        super().__init__(timeout=None)
-        self.cog = cog
-        states = {
-            APPLICATION_KIND_MAIN: main_open,
-            APPLICATION_KIND_VZP: vzp_open,
-        }
-        for kind in (APPLICATION_KIND_MAIN, APPLICATION_KIND_VZP):
-            self._add_toggle(
-                kind,
-                f"Набор {forms.panel_label(kind)}",
-                states[kind],
-                f"control:{kind}:toggle",
-                row=0,
-            )
-        for kind in (APPLICATION_KIND_MAIN, APPLICATION_KIND_VZP):
-            self._add_form(kind, f"Форма {forms.panel_label(kind)}", f"control:{kind}:form", row=1)
-
-    def _add_toggle(self, kind: str, label: str, is_open: bool, custom_id: str, row: int) -> None:
-        button = discord.ui.Button(
-            label=label,
-            style=discord.ButtonStyle.success if is_open else discord.ButtonStyle.danger,
-            custom_id=custom_id,
-            row=row,
-        )
-
-        async def callback(interaction: discord.Interaction) -> None:
-            await self._toggle(interaction, kind)
-
-        button.callback = callback
-        self.add_item(button)
-
-    def _add_form(self, kind: str, label: str, custom_id: str, row: int) -> None:
-        button = discord.ui.Button(
-            label=label,
-            style=discord.ButtonStyle.secondary,
-            custom_id=custom_id,
-            row=row,
-        )
-
-        async def callback(interaction: discord.Interaction) -> None:
-            await self._form(interaction, kind)
-
-        button.callback = callback
-        self.add_item(button)
-
-    async def _leader(self, interaction: discord.Interaction) -> bool:
-        member = interaction.user if isinstance(interaction.user, discord.Member) else None
-        if member is None or not is_leader(member):
-            await _say(interaction, "Нет прав.")
-            return False
-        return True
-
-    async def _toggle(self, interaction: discord.Interaction, kind: str) -> None:
-        if not await self._leader(interaction):
-            return
-        is_open = await forms.is_kind_open(kind)
-        await forms.set_kind_open(kind, not is_open)
-        await interaction.response.defer(ephemeral=True, thinking=True)
-        await self.cog.ensure_control_panel()
-        await self.cog.ensure_applications_message()
-        state = forms.status_text(not is_open).lower()
-        await interaction.followup.send(
-            f"Набор {forms.panel_label(kind)}: {state}.", ephemeral=True
-        )
-
-    async def _form(self, interaction: discord.Interaction, kind: str) -> None:
-        if not await self._leader(interaction):
-            return
-        embed = await self.cog.render_questions_embed(kind)
-        await interaction.response.send_message(
-            embed=embed, view=QuestionManagerView(self.cog, kind), ephemeral=True
-        )
 
 
 class ClaimTicketView(discord.ui.View):

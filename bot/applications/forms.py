@@ -5,6 +5,7 @@ from sqlalchemy import select
 
 from bot.config import (
     APPLICATION_CLOSED_EMOJI,
+    APPLICATION_KIND_COMPOSITIONS,
     APPLICATION_KIND_LABELS,
     APPLICATION_KIND_MAIN,
     APPLICATION_KIND_PANEL_LABELS,
@@ -48,10 +49,10 @@ def build_applications_text(*, main_open: bool, vzp_open: bool) -> str:
 
     return (
         "# Оформление заявки в семью\n"
-        "## Состав играющий фракционные мероприятия + при желании VZP;\n"
+        f"## {APPLICATION_KIND_COMPOSITIONS[APPLICATION_KIND_MAIN]};\n"
         f"## <@&{main_role}>: {APPLICATION_KIND_REQUIREMENTS[APPLICATION_KIND_MAIN]}\n"
         f"> **Статус набора:** {status_mark(main_open)} {status_text(main_open)}\n"
-        "## Состав играющий онли VZP;\n"
+        f"## {APPLICATION_KIND_COMPOSITIONS[APPLICATION_KIND_VZP]};\n"
         f"## <@&{vzp_role}>: {APPLICATION_KIND_REQUIREMENTS[APPLICATION_KIND_VZP]}\n"
         f"> **Статус набора:** {status_mark(vzp_open)} {status_text(vzp_open)}\n"
         "### ```Что важно знать перед подачей:```\n"
@@ -193,12 +194,4 @@ def build_applications_embed(*, main_open: bool, vzp_open: bool) -> discord.Embe
         title="Оформление заявки в семью",
         description=build_applications_text(main_open=main_open, vzp_open=vzp_open),
         color=discord.Color.from_rgb(88, 101, 242),
-    )
-
-
-def build_control_panel_description(*, main_open: bool, vzp_open: bool) -> str:
-    """Статусы функций панели: `<эмодзи> Набор Young` / `<эмодзи> Набор Test`."""
-    return (
-        f"{status_mark(main_open)} Набор {panel_label(APPLICATION_KIND_MAIN)}\n"
-        f"{status_mark(vzp_open)} Набор {panel_label(APPLICATION_KIND_VZP)}"
     )

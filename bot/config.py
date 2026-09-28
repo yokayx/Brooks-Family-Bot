@@ -77,6 +77,11 @@ APPLICATION_KIND_LABELS = {
     APPLICATION_KIND_MAIN: "Main",
     APPLICATION_KIND_VZP: "VZP",
 }
+# Как состав называется в меню заявок и в панели управления.
+APPLICATION_KIND_COMPOSITIONS = {
+    APPLICATION_KIND_MAIN: "Состав играющий фракционные мероприятия + при желании VZP",
+    APPLICATION_KIND_VZP: "Состав играющий онли VZP",
+}
 APPLICATION_KIND_ROLE_IDS = {
     APPLICATION_KIND_MAIN: TEST_ROLE_ID,
     APPLICATION_KIND_VZP: APPLICATION_VZP_ROLE_ID,
