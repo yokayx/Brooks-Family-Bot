@@ -23,11 +23,13 @@ def setup_logging() -> None:
 
 
 class BrooksBot(commands.Bot):
-    def __init__(self, token: str, database_url: str) -> None:
+    def __init__(self, token: str, database_url: str, *, message_content: bool = True) -> None:
         intents = discord.Intents.none()
         intents.guilds = True
         intents.members = True
         intents.messages = True
+        intents.voice_states = True
+        intents.message_content = message_content
         super().__init__(command_prefix="!", intents=intents)
         self._token = token
         self._database_url = database_url
@@ -54,8 +56,28 @@ def main() -> None:
     load_dotenv()
     setup_logging()
     settings = load_settings()
-    bot = BrooksBot(settings.discord_token, settings.database_url)
-    bot.start_bot()
+    bot = BrooksBot(
+        settings.discord_token,
+        settings.database_url,
+        message_content=settings.message_content_intent,
+    )
+    try:
+        bot.start_bot()
+    except discord.PrivilegedIntentsRequired:
+        if not settings.message_content_intent:
+            raise
+        # Галочки «Message Content Intent» в портале нет — Discord рвёт
+        # соединение (4014). Запускаемся без него, чтобы бот вообще поднялся.
+        log.warning(
+            "Message Content Intent не включён в Discord Developer Portal "
+            "(Bot -> Privileged Gateway Intents). Запускаюсь без него: "
+            "текст удалённых и изменённых сообщений в логах будет пустым."
+        )
+        BrooksBot(
+            settings.discord_token,
+            settings.database_url,
+            message_content=False,
+        ).start_bot()
 
 
 if __name__ == "__main__":

@@ -4,6 +4,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 ROSTER_CHANNEL_ID = 1552347393993867274
 OWNER_CHANNEL_ID = 1453123004484554990
 VZP_CHANNEL_ID = 1552367826906521620
+# Служебный канал: сюда внешний инструмент кладёт JSON с данными войн.
+# 0 = приём выключен.
+VZP_INGEST_CHANNEL_ID = 0
 APPLICATIONS_CHANNEL_ID = 1453123004308390116
 TICKETS_CATEGORY_ID = 1552394606975516804
 CLOSED_TICKETS_CATEGORY_ID = 1552394634616111178
@@ -33,7 +36,7 @@ LEADERSHIP_ROLE_IDS: tuple[int, ...] = (
 )
 
 FAMILY_NAME = "Brooks"
-FALLBACK_NICK = "НИКНЕЙМ ПО ФОРМЕ ДАЙ СУКА"
+FALLBACK_NICK = "ник по форме"
 PLACEHOLDER = "."
 ERROR_CHANNEL_TEXT = "Возникла проблема при отправке состава"
 MAX_SEND_ATTEMPTS = 3
@@ -44,18 +47,65 @@ MOSCOW_TZ = "Europe/Moscow"
 VZP_API_BASE = "https://vzp-launcher.pro/api"
 VZP_FAMILY_NAME = "Brooks"
 VZP_SERVER_NAME = "RICHMAN"
-VZP_POLL_SECONDS = 60
+VZP_POLL_SECONDS = 300
 VZP_FETCH_LIMIT = 100
+VZP_FETCH_PAGES = 3
+VZP_HTTP_TIMEOUT = 25
+VZP_RETRIES = 3
+# Окно, в котором считаем активную войну «свежим забивом» (список иногда
+# хранит протухшие active-записи за несколько дней).
+VZP_DEF_WINDOW_MINUTES = 45
+# Канал для авто-уведомления и авто-сбора на деф.
+PLUS_DEF_CHANNEL_ID = VZP_CHANNEL_ID
 VZP_SOURCE_NOTE = "vzp-launcher.pro · не официальный API GTA5RP"
 
 HEAD_VZP_ROLE_ID = 1551727304382611476
 RECRUITER_ROLE_ID = 1453123003645952254
 TEST_ROLE_ID = 1550827936641454141
+# Роль состава «онли VZP» (тег в сообщении заявок)
+APPLICATION_VZP_ROLE_ID = 1553233826451431494
+# Канал с панелью управления
+CONTROL_PANEL_CHANNEL_ID = 1553239900176908289
+APPLICATION_KIND_MAIN = "main"
+APPLICATION_KIND_VZP = "vzp"
+# В панели управления состав Main называем Young, а VZP — Test (как в меню заявок).
+APPLICATION_KIND_PANEL_LABELS = {
+    APPLICATION_KIND_MAIN: "Young",
+    APPLICATION_KIND_VZP: "Test",
+}
+APPLICATION_KIND_LABELS = {
+    APPLICATION_KIND_MAIN: "Main",
+    APPLICATION_KIND_VZP: "VZP",
+}
+# Как состав называется в меню заявок и в панели управления.
+APPLICATION_KIND_COMPOSITIONS = {
+    APPLICATION_KIND_MAIN: "Состав играющий фракционные мероприятия + при желании VZP",
+    APPLICATION_KIND_VZP: "Состав играющий онли VZP",
+}
+APPLICATION_KIND_ROLE_IDS = {
+    APPLICATION_KIND_MAIN: TEST_ROLE_ID,
+    APPLICATION_KIND_VZP: APPLICATION_VZP_ROLE_ID,
+}
+APPLICATION_KIND_REQUIREMENTS = {
+    APPLICATION_KIND_MAIN: "Нужны откаты с Арены.",
+    APPLICATION_KIND_VZP: "Нужны откаты с VZP и Арены.",
+}
+# Кастомные эмодзи статуса набора (:on: / :off:).
+APPLICATION_OPEN_EMOJI_ID = 1553261250916515871
+APPLICATION_CLOSED_EMOJI_ID = 1553261237461196845
+APPLICATION_OPEN_EMOJI = f"<:on:{APPLICATION_OPEN_EMOJI_ID}>"
+APPLICATION_CLOSED_EMOJI = f"<:off:{APPLICATION_CLOSED_EMOJI_ID}>"
+# Кого тегаем, когда заявитель что-то написал в тикете.
+APPLICATION_PING_ROLE_IDS: tuple[int, ...] = (1453123003645952254, 1453123003645952259)
+APPLICATIONS_MESSAGE_KEY = "applications_menu"
+CONTROL_MESSAGE_KEY = "control_panel"
 APPLICATION_MEMBER_ROLE_ID = 1552378409211142174
 APPLICATION_ACCEPT_ROLE_IDS: tuple[int, ...] = (
     TEST_ROLE_ID,
     APPLICATION_MEMBER_ROLE_ID,
 )
+# Роль, которую бот выдаёт человеку при заходе на сервер
+JOIN_ROLE_ID = 1453123003138314329
 PLUS_PING_GENERAL_ROLE_ID = 1552378409211142174
 PLUS_PING_VZP_ROLE_ID = 1551727236812640359
 PLUS_KIND_GENERAL = "general"
@@ -69,12 +119,28 @@ PLUS_KIND_PINGS = {
     PLUS_KIND_VZP: PLUS_PING_VZP_ROLE_ID,
 }
 
+# --- Логи (ког bot/cogs/logs.py) ---------------------------------------------------
+# 0 = канал не настроен, лог для него просто не отправляется.
+LOG_TEXT_CHANNEL_ID = 1553289165179985960
+LOG_VOICE_CHANNEL_ID = 1553289200244232252
+LOG_MEMBER_CHANNEL_ID = 1553289245605634128
+LOG_MODERATION_CHANNEL_ID = 1553289349653598319
+LOG_SERVER_CHANNEL_ID = 1553289301389877268
+LOG_INVITE_CHANNEL_ID = 1553289264349839371
+LOG_AUDIT_CHANNEL_ID = 1553289418528522270
+# «Живая консоль»: сюда транслируется журнал Python
+LOG_BOT_LIVE_CHANNEL_ID = 1553289439135006841
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     discord_token: str
     database_url: str = "sqlite+aiosqlite:///data/brooks.db"
+    # Привилегированный интент «Message Content»: без него Discord не присылает
+    # текст сообщений и логи удаления/правки пустые. Включён по умолчанию.
+    # Выключить принудительно: MESSAGE_CONTENT_INTENT=false
+    message_content_intent: bool = True
 
 
 def load_settings() -> Settings:

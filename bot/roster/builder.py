@@ -8,7 +8,6 @@ from bot.config import (
     FAMILY_NAME,
     RANK_ROLES,
 )
-from bot.roster.names import extract_name
 
 
 class RoleLike(Protocol):
@@ -30,8 +29,9 @@ class RosterPayload:
     member_ids: frozenset[int]
 
 
-def _profile_name(member: MemberLike) -> str:
-    return extract_name(member.nick or member.display_name)
+def _sort_name(member: MemberLike) -> str:
+    """Ключ сортировки: ник как он есть, без разбора на игровой тег."""
+    return (member.nick or member.display_name or "").casefold()
 
 
 def _split_section(title: str, lines: list[str], limit: int = DISCORD_MESSAGE_LIMIT) -> list[str]:
@@ -66,7 +66,7 @@ def build_roster(
         if member.bot:
             continue
         role_ids = {role.id for role in member.roles}
-        name = _profile_name(member)
+        name = _sort_name(member)
         in_family = False
         for role_id, _title in ranks:
             if role_id in role_ids:
@@ -82,7 +82,7 @@ def build_roster(
         if not people:
             continue
         people.sort(key=lambda item: (item[0].casefold(), item[1]))
-        lines = [f"<@{user_id}> | {name}" for name, user_id in people]
+        lines = [f"<@{user_id}>" for _name, user_id in people]
         texts.extend(_split_section(title, lines))
 
     return RosterPayload(tuple(texts), len(unique), frozenset(unique))

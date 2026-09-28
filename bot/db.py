@@ -29,18 +29,30 @@ async def init_db(database_url: str) -> None:
     SessionLocal = async_sessionmaker(engine, expire_on_commit=False)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-        await conn.run_sync(_migrate_plus_kind)
+        await conn.run_sync(_migrate_plus_events)
+        await conn.run_sync(_migrate_applications)
 
 
-def _migrate_plus_kind(connection) -> None:
-    rows = connection.execute(text("PRAGMA table_info(plus_events)")).fetchall()
+def _ensure_column(connection, table: str, column: str, ddl: str) -> None:
+    rows = connection.execute(text(f"PRAGMA table_info({table})")).fetchall()
     if not rows:
         return
     names = {row[1] for row in rows}
-    if "event_kind" not in names:
-        connection.execute(
-            text("ALTER TABLE plus_events ADD COLUMN event_kind TEXT DEFAULT 'general'")
-        )
+    if column not in names:
+        connection.execute(text(f"ALTER TABLE {table} ADD COLUMN {ddl}"))
+
+
+def _migrate_applications(connection) -> None:
+    _ensure_column(connection, "application_questions", "kind", "kind TEXT DEFAULT 'main'")
+    _ensure_column(connection, "tickets", "kind", "kind TEXT DEFAULT 'main'")
+    _ensure_column(
+        connection, "tickets", "applicant_replied", "applicant_replied BOOLEAN DEFAULT 0"
+    )
+
+
+def _migrate_plus_events(connection) -> None:
+    _ensure_column(connection, "plus_events", "event_kind", "event_kind TEXT DEFAULT 'general'")
+    _ensure_column(connection, "plus_events", "title", "title TEXT")
 
 
 @asynccontextmanager

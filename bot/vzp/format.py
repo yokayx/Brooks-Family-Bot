@@ -1,37 +1,14 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
-from zoneinfo import ZoneInfo
-
 import discord
 
-from bot.config import FAMILY_NAME, MOSCOW_TZ, VZP_SOURCE_NOTE
+from bot.config import FAMILY_NAME
+from bot.vzp.dt import fmt_dt as _fmt_dt
 from bot.vzp.filter import brooks_side, brooks_won
 
-_MSK = ZoneInfo(MOSCOW_TZ)
 _WIN = discord.Color.from_rgb(46, 204, 113)
 _LOSS = discord.Color.from_rgb(231, 76, 60)
 _DRAW = discord.Color.from_rgb(149, 165, 166)
-
-
-def _parse_dt(value: object) -> datetime | None:
-    if not value:
-        return None
-    raw = str(value).replace("Z", "+00:00")
-    try:
-        dt = datetime.fromisoformat(raw)
-    except ValueError:
-        return None
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=UTC)
-    return dt.astimezone(_MSK)
-
-
-def _fmt_dt(value: object) -> str:
-    dt = _parse_dt(value)
-    if dt is None:
-        return "—"
-    return dt.strftime("%d.%m %H:%M")
 
 
 def _opponent(war: dict, side: str) -> str:
@@ -48,6 +25,15 @@ def _our_score(war: dict, side: str) -> tuple[int, int]:
     return dfn, atk
 
 
+def _num(value: object) -> str:
+    """17.9 → `17.9`, 20.0 → `20`."""
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return "—"
+    return f"{number:g}"
+
+
 def _lines(people: list[dict], *, limit: int = 12) -> str:
     if not people:
         return "нет данных"
@@ -61,8 +47,11 @@ def _lines(people: list[dict], *, limit: int = 12) -> str:
         kills = int(person.get("kills") or 0)
         dmg = int(person.get("damage") or 0)
         acc = person.get("hit_percent")
-        acc_s = f" · {acc}%" if acc is not None else ""
-        rows.append(f"`{kills:>2}` `{dmg:>4}`{acc_s}  {name}")
+        hs = person.get("headshot_percent")
+        stats = f"{_num(acc)}%" if acc is not None else "—"
+        if hs is not None:
+            stats += f" / {_num(hs)}%HS"
+        rows.append(f"{kills} {dmg} - {stats} - {name}")
     extra = len(ordered) - limit
     if extra > 0:
         rows.append(f"… ещё {extra}")
@@ -76,15 +65,16 @@ def build_result_embed(war: dict) -> discord.Embed:
     role = "ATK" if side == "attacker" else "DEF"
     enemy = _opponent(war, side)
     if won is True:
-        title = f"Победа · {FAMILY_NAME}"
+        title = f"Победа · {role} · {FAMILY_NAME}"
         color = _WIN
     elif won is False:
-        title = f"Поражение · {FAMILY_NAME}"
+        title = f"Поражение · {role} · {FAMILY_NAME}"
         color = _LOSS
     else:
-        title = f"Итог · {FAMILY_NAME}"
+        title = f"Итог · {role} · {FAMILY_NAME}"
         color = _DRAW
 
+    war_id = str(war.get("id") or "").strip()
     embed = discord.Embed(
         title=title,
         description=(
@@ -92,7 +82,7 @@ def build_result_embed(war: dict) -> discord.Embed:
             f"Счёт **{us} : {them}**"
         ),
         color=color,
-        url=f"https://vzp-launcher.pro/family/{FAMILY_NAME}",
+        url=f"https://vzp-launcher.pro/vzp?war={war_id}" if war_id else None,
     )
     embed.add_field(name="Точка", value=str(war.get("territory") or "—"), inline=True)
     embed.add_field(name="Карта", value=str(war.get("map_name") or "—"), inline=True)
@@ -116,12 +106,4 @@ def build_result_embed(war: dict) -> discord.Embed:
         value=_lines(foes)[:1024],
         inline=False,
     )
-    skill = war.get("match_skill_tier")
-    footer = VZP_SOURCE_NOTE
-    if skill:
-        footer = f"{skill} · {footer}"
-    embed.set_footer(text=footer)
-    ended = _parse_dt(war.get("ended_at"))
-    if ended is not None:
-        embed.timestamp = ended
     return embed

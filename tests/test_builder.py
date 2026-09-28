@@ -1,6 +1,6 @@
 from types import SimpleNamespace
 
-from bot.config import FALLBACK_NICK, RANK_ROLES
+from bot.config import RANK_ROLES
 from bot.roster.builder import _split_section, build_roster
 
 OWNER = RANK_ROLES[0][0]
@@ -35,9 +35,9 @@ def test_header_unique_count_and_multi_role() -> None:
     assert payload.messages[0] == "# Состав Brooks\n## Численность: 3"
     owner_msg = next(m for m in payload.messages if m.startswith("## Owner"))
     main_msg = next(m for m in payload.messages if m.startswith("## Main"))
-    assert "<@1> | Klyde" in owner_msg
-    assert "<@1> | Klyde" in main_msg
-    assert "<@3> | " + FALLBACK_NICK in main_msg
+    assert "<@1>" in owner_msg
+    assert "<@1>" in main_msg
+    assert "<@3>" in main_msg
 
 
 def test_empty_ranks_omitted() -> None:
@@ -79,3 +79,16 @@ def test_split_section_repeats_heading() -> None:
     assert len(chunks) > 1
     assert all(c.startswith("## Main\n") for c in chunks)
     assert sum(c.count("<@") for c in chunks) == 80
+
+
+def test_roster_line_is_tag_only() -> None:
+    members = [
+        _member(1, "Klyde | Илья", [MAIN]),
+        _member(2, "[Brooks] Alpha | A", [MAIN]),
+        _member(3, "Илья | Клайд", [MAIN]),
+    ]
+    payload = build_roster(members)
+    main_msg = next(m for m in payload.messages if m.startswith("## Main"))
+    lines = [line for line in main_msg.splitlines() if line.startswith("<@")]
+    # имени из ника в строке нет — только тег; сортировка A→Z по нику
+    assert lines == ["<@2>", "<@1>", "<@3>"]
