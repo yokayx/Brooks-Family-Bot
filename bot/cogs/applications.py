@@ -11,7 +11,7 @@ from zoneinfo import ZoneInfo
 import discord
 from discord import app_commands
 from discord.ext import commands
-from sqlalchemy import func, select
+from sqlalchemy import select
 
 from bot.applications import forms
 from bot.applications.dates import parse_date
@@ -95,6 +95,9 @@ class ApplicationsCog(commands.Cog, name="Applications"):
         self.bot.add_view(ClaimTicketView(self))
         self.bot.add_view(ManagedTicketView(self))
         self.bot.add_view(PostAcceptView(self))
+        # Старые базы уже накопили кривые номера — приводим их в порядок.
+        for kind in (APPLICATION_KIND_MAIN, APPLICATION_KIND_VZP):
+            await forms.renumber_questions(kind)
         asyncio.create_task(self._startup_publish())
 
     async def _resolve_text_channel(self, channel_id: int) -> discord.TextChannel | None:
@@ -898,22 +901,11 @@ class AddQuestionModal(discord.ui.Modal):
         self.add_item(self.question)
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
-        async with session_scope() as session:
-            max_order_result = await session.execute(
-                select(func.max(ApplicationQuestion.order)).where(
-                    ApplicationQuestion.kind == self.kind
-                )
-            )
-            max_order = max_order_result.scalar_one() or 0
-            session.add(
-                ApplicationQuestion(
-                    order=max_order + 1,
-                    question=str(self.question).strip(),
-                    is_active=True,
-                    kind=self.kind,
-                )
-            )
-
+        text = str(self.question).strip()
+        if not text:
+            await _say(interaction, "Вопрос не может быть пустым.")
+            return
+        await forms.add_question(self.kind, text)
         embed = await self.cog.render_questions_embed(self.kind)
         await interaction.response.edit_message(
             embed=embed, view=QuestionManagerView(self.cog, self.kind)
@@ -935,24 +927,9 @@ class RemoveQuestionModal(discord.ui.Modal):
             await _say(interaction, "Введите корректный номер вопроса.")
             return
 
-        async with session_scope() as session:
-            result = await session.execute(
-                select(ApplicationQuestion)
-                .where(
-                    ApplicationQuestion.is_active.is_(True),
-                    ApplicationQuestion.kind == self.kind,
-                )
-                .order_by(ApplicationQuestion.order.asc())
-            )
-            questions = list(result.scalars().all())
-            if number < 1 or number > len(questions):
-                await _say(interaction, "Вопрос с таким номером не найден.")
-                return
-            to_remove = questions[number - 1]
-            to_remove.is_active = False
-            remaining = [item for item in questions if item.id != to_remove.id]
-            for index, question in enumerate(remaining, start=1):
-                question.order = index
+        if not await forms.remove_question(self.kind, number):
+            await _say(interaction, "Вопрос с таким номером не найден.")
+            return
 
         embed = await self.cog.render_questions_embed(self.kind)
         await interaction.response.edit_message(

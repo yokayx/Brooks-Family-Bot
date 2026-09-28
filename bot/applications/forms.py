@@ -18,6 +18,9 @@ from bot.models import ApplicationKind, ApplicationQuestion, BotMessage
 
 OPEN_MARK = APPLICATION_OPEN_EMOJI
 CLOSED_MARK = APPLICATION_CLOSED_EMOJI
+# Новый вопрос кладём в хвост, потом перенумеруем; снятые живут ещё дальше.
+QUESTION_APPEND_ORDER = 10_000
+QUESTION_ARCHIVE_ORDER = 100_000
 
 
 def kind_label(kind: str) -> str:
@@ -98,10 +101,72 @@ async def get_questions(kind: str) -> list[ApplicationQuestion]:
                 ApplicationQuestion.is_active.is_(True),
                 ApplicationQuestion.kind == kind,
             )
-            .order_by(ApplicationQuestion.order.asc())
-            .limit(5)
+            .order_by(ApplicationQuestion.order.asc(), ApplicationQuestion.id.asc())
         )
         return list(result.scalars().all())
+
+
+async def renumber_questions(kind: str) -> None:
+    """Активные вопросы — 1..N по порядку, снятые уносим в хвост (1000+).
+
+    Без этого снятый вопрос сохранял свой старый номер, а активные после него
+    съезжали: номера в форме начинали дублироваться и появлялись дырки.
+    """
+    async with session_scope() as session:
+        active_result = await session.execute(
+            select(ApplicationQuestion)
+            .where(
+                ApplicationQuestion.is_active.is_(True),
+                ApplicationQuestion.kind == kind,
+            )
+            .order_by(ApplicationQuestion.order.asc(), ApplicationQuestion.id.asc())
+        )
+        for index, question in enumerate(active_result.scalars().all(), start=1):
+            question.order = index
+
+        inactive_result = await session.execute(
+            select(ApplicationQuestion)
+            .where(
+                ApplicationQuestion.is_active.is_(False),
+                ApplicationQuestion.kind == kind,
+            )
+            .order_by(ApplicationQuestion.id.asc())
+        )
+        for offset, question in enumerate(inactive_result.scalars().all(), start=1):
+            question.order = QUESTION_ARCHIVE_ORDER + offset
+
+
+async def add_question(kind: str, text: str) -> None:
+    """Вопрос в конец списка: сначала хвостовой order, потом перенумерация."""
+    async with session_scope() as session:
+        session.add(
+            ApplicationQuestion(
+                order=QUESTION_APPEND_ORDER,
+                question=text.strip(),
+                is_active=True,
+                kind=kind,
+            )
+        )
+    await renumber_questions(kind)
+
+
+async def remove_question(kind: str, number: int) -> bool:
+    """Убрать вопрос по номеру из списка. False — такого номера нет."""
+    async with session_scope() as session:
+        result = await session.execute(
+            select(ApplicationQuestion)
+            .where(
+                ApplicationQuestion.is_active.is_(True),
+                ApplicationQuestion.kind == kind,
+            )
+            .order_by(ApplicationQuestion.order.asc(), ApplicationQuestion.id.asc())
+        )
+        questions = list(result.scalars().all())
+        if number < 1 or number > len(questions):
+            return False
+        questions[number - 1].is_active = False
+    await renumber_questions(kind)
+    return True
 
 
 async def save_bot_message(name: str, channel_id: int, message_id: int) -> None:
