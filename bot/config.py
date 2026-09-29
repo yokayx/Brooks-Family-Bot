@@ -118,6 +118,16 @@ PLUS_KIND_PINGS = {
     PLUS_KIND_GENERAL: PLUS_PING_GENERAL_ROLE_ID,
     PLUS_KIND_VZP: PLUS_PING_VZP_ROLE_ID,
 }
+# Кто может ставить плюсы на сборах VZP сверх состава и руководства:
+# Head VZP, тег VZP, состав «онли VZP» и роль VZP-отряда.
+PLUS_VZP_ROLE_IDS: tuple[int, ...] = (
+    1551727304382611476,  # Head VZP
+    1551727236812640359,  # тег VZP
+    1553233826451431494,  # состав «онли VZP»
+    1551727082541813891,  # VZP
+)
+# Кто может откидывать (закрывать) сборы VZP: Head VZP.
+PLUS_VZP_CANCEL_ROLE_IDS: tuple[int, ...] = (HEAD_VZP_ROLE_ID,)
 
 # --- Логи (ког bot/cogs/logs.py) ---------------------------------------------------
 # 0 = канал не настроен, лог для него просто не отправляется.

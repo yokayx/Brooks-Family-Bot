@@ -18,6 +18,7 @@ from bot.config import (
     PLUS_KIND_LABELS,
     PLUS_KIND_PINGS,
     PLUS_KIND_VZP,
+    PLUS_VZP_ROLE_IDS,
     RANK_ROLE_IDS,
 )
 from bot.db import session_scope
@@ -40,6 +41,27 @@ def _is_family(member: discord.Member) -> bool:
 
 def _can_create_plus(member: discord.Member) -> bool:
     return any(role.id == HEAD_VZP_ROLE_ID for role in member.roles) or is_leader(member)
+
+
+def _kind_of(event: PlusEvent) -> str:
+    return getattr(event, "event_kind", None) or PLUS_KIND_GENERAL
+
+
+def _has_any_role(member: discord.Member, role_ids: tuple[int, ...]) -> bool:
+    return any(role.id in role_ids for role in member.roles)
+
+
+FAMILY_JOIN_DENY = "Записываться могут только члены семьи."
+VZP_JOIN_DENY = "На сбор VZP могут записываться только состав семьи и роли VZP."
+
+
+def join_denial(member: discord.Member, kind: str | None) -> str | None:
+    """Почему человеку нельзя записаться. `None` — можно."""
+    if _is_family(member):
+        return None
+    if kind == PLUS_KIND_VZP and _has_any_role(member, PLUS_VZP_ROLE_IDS):
+        return None
+    return VZP_JOIN_DENY if kind == PLUS_KIND_VZP else FAMILY_JOIN_DENY
 
 
 def _kind_label(kind: str | None) -> str:
@@ -161,6 +183,12 @@ class PlusEventView(discord.ui.View):
         event = await self._event(interaction)
         if event is None:
             return
+        member = interaction.user if isinstance(interaction.user, discord.Member) else None
+        if member is not None:
+            denial = join_denial(member, _kind_of(event))
+            if denial is not None:
+                await _say(interaction, denial)
+                return
         if event.need_static:
             await interaction.response.send_modal(StaticModal(self.cog, event.id))
             return
@@ -281,8 +309,9 @@ class PlusCog(commands.Cog, name="Plus"):
         if interaction.guild is None or member is None:
             await _say(interaction, "Только на сервере.")
             return
-        if not _is_family(member):
-            await _say(interaction, "Записываться могут только члены семьи.")
+        denial = join_denial(member, PLUS_KIND_GENERAL)
+        if denial is not None:
+            await _say(interaction, denial)
             return
 
         async with session_scope() as session:
@@ -290,6 +319,10 @@ class PlusCog(commands.Cog, name="Plus"):
             event = result.scalar_one_or_none()
             if event is None or not event.is_active:
                 await _say(interaction, "Сбор не найден или закрыт.")
+                return
+            denial = join_denial(member, _kind_of(event))
+            if denial is not None:
+                await _say(interaction, denial)
                 return
             people = _load_participants(event.participants_json)
             people[str(member.id)] = {"user_id": member.id, "static": static_name or ""}

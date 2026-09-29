@@ -173,3 +173,95 @@ def test_event_time_is_shown_as_typed_msk() -> None:
     assert text.startswith("20:00 МСК")
     assert "<t:" in text  # относительное «через N» оставляем
     assert _format_event_time(None) == "-"
+
+
+def _member_with_roles(role_ids: list[int]):
+    from types import SimpleNamespace
+
+    return SimpleNamespace(
+        id=1,
+        nick="Klyde | Илья",
+        roles=[SimpleNamespace(id=role_id) for role_id in role_ids],
+    )
+
+
+def test_vzp_roles_can_join_vzp_only() -> None:
+    """Роли VZP ставят плюсы на VZP-сборы, но не на общие."""
+    from bot.cogs.plus import join_denial
+    from bot.config import (
+        PLUS_KIND_GENERAL,
+        PLUS_KIND_VZP,
+        PLUS_VZP_ROLE_IDS,
+        RANK_ROLE_IDS,
+    )
+
+    for role_id in PLUS_VZP_ROLE_IDS:
+        assert join_denial(_member_with_roles([role_id]), PLUS_KIND_VZP) is None
+
+    # Head VZP — ещё и ранг состава, общие сборы ему доступны и так.
+    non_rank = [role_id for role_id in PLUS_VZP_ROLE_IDS if role_id not in RANK_ROLE_IDS]
+    assert non_rank
+    for role_id in non_rank:
+        assert join_denial(_member_with_roles([role_id]), PLUS_KIND_GENERAL) is not None
+
+
+def test_family_joins_any_kind() -> None:
+    from bot.cogs.plus import join_denial
+    from bot.config import PLUS_KIND_GENERAL, PLUS_KIND_VZP, RANK_ROLE_IDS
+
+    rank = sorted(RANK_ROLE_IDS)[0]
+    assert join_denial(_member_with_roles([rank]), PLUS_KIND_VZP) is None
+    assert join_denial(_member_with_roles([rank]), PLUS_KIND_GENERAL) is None
+
+
+def test_outsider_gets_kind_specific_denial() -> None:
+    from bot.cogs.plus import FAMILY_JOIN_DENY, VZP_JOIN_DENY, join_denial
+    from bot.config import PLUS_KIND_GENERAL, PLUS_KIND_VZP
+
+    member = _member_with_roles([999])
+    assert join_denial(member, PLUS_KIND_GENERAL) == FAMILY_JOIN_DENY
+    assert join_denial(member, PLUS_KIND_VZP) == VZP_JOIN_DENY
+
+
+def test_requested_vzp_role_ids() -> None:
+    from bot.config import PLUS_VZP_ROLE_IDS
+
+    assert PLUS_VZP_ROLE_IDS == (
+        1551727304382611476,
+        1551727236812640359,
+        1553233826451431494,
+        1551727082541813891,
+    )
+
+
+async def test_plus_button_denies_before_static_modal() -> None:
+    """Кому нельзя — тот не дойдёт даже до модалки статик."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    import discord
+
+    from bot.cogs.plus import PlusEventView
+    from bot.config import PLUS_KIND_VZP
+
+    event = MagicMock()
+    event.is_active = True
+    event.need_static = True
+    event.event_kind = PLUS_KIND_VZP
+    cog = MagicMock()
+    cog.get_event_from_message = AsyncMock(return_value=event)
+    cog.add_participant = AsyncMock()
+
+    view = PlusEventView(cog)
+    member = MagicMock(spec=discord.Member)
+    member.roles = []
+    interaction = MagicMock()
+    interaction.response = AsyncMock()
+    interaction.user = member
+    interaction.message = MagicMock(id=7)
+
+    await view.plus_button.callback(interaction)
+
+    interaction.response.send_modal.assert_not_called()
+    cog.add_participant.assert_not_awaited()
+    interaction.response.send_message.assert_awaited_once()
+    assert "VZP" in interaction.response.send_message.await_args.args[0]
