@@ -265,3 +265,13 @@ async def test_plus_button_denies_before_static_modal() -> None:
     cog.add_participant.assert_not_awaited()
     interaction.response.send_message.assert_awaited_once()
     assert "VZP" in interaction.response.send_message.await_args.args[0]
+
+
+def test_head_vzp_can_open_events() -> None:
+    """Открывать сборы (в том числе VZP) может Head VZP и руководство."""
+    import bot.cogs.plus as plus
+    from bot.config import HEAD_VZP_ROLE_ID
+
+    assert HEAD_VZP_ROLE_ID == 1551727304382611476
+    assert plus._can_create_plus(_member_with_roles([HEAD_VZP_ROLE_ID])) is True
+    assert plus._can_create_plus(_member_with_roles([999])) is False
